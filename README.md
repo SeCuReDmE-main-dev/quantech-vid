@@ -1,6 +1,5 @@
 # QuaNTecH-ViD
 
-[![CI](https://github.com/SeCuReDmE-open-source/quantech-vid/actions/workflows/ci.yml/badge.svg)](https://github.com/SeCuReDmE-open-source/quantech-vid/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Voice, made visual.**
@@ -112,6 +111,7 @@ The current suite covers manifests, path safety, TTS cache keys, subtitles, job 
 - [Forty-tool integration catalog](docs/INTEGRATION_CATALOG.md)
 - [Nine-day build plan](docs/9_DAY_BUILD_PLAN.md)
 - [Agent-loop eval plan](docs/evals/AGENT_LOOPING_EVAL_PLAN.md)
+- [Validation baseline](docs/VALIDATION_BASELINE.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
