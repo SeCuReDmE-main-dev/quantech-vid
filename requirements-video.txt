@@ -1,0 +1,11 @@
+fastapi==0.139.0
+uvicorn[standard]==0.49.0
+pydantic==2.13.4
+python-dotenv==1.1.1
+openai==1.109.1
+playwright==1.55.0
+moviepy==2.2.1
+imageio-ffmpeg==0.6.0
+Pillow==11.3.0
+httpx==0.28.1
+pytest==8.4.2

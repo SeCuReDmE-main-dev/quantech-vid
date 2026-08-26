@@ -1,0 +1,26 @@
+{
+  "name": "quantech-vid-local-studio",
+  "version": "1.0.3",
+  "description": "Loopback-only capture bridge for QuaNTecH-ViD studio",
+  "main": "background.js",
+  "scripts": {
+    "build": "webpack --config webpack.config.js",
+    "watch": "webpack --config webpack.config.js --watch",
+    "test:contract": "node --test tests/extension-contract.test.mjs",
+    "package": "npm run build && web-ext build -s dist/ -a releases/",
+    "dev": "web-ext run -s dist/"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@babel/core": "^7.22.5",
+    "@babel/preset-env": "^7.22.5",
+    "@types/chrome": "^0.0.246",
+    "babel-loader": "^9.1.2",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^7.1.2",
+    "style-loader": "^4.0.0",
+    "web-ext": "^7.8.0",
+    "webpack": "^5.88.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

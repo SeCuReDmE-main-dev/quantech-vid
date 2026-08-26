@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "slug": "synthia-scientific-memory",
+  "title": "Synthia Scientific Memory System",
+  "source_url": "https://synthia.securedme.ca",
+  "disclosure": "Narration generated with OpenAI text-to-speech and reviewed by a human.",
+  "locales": [
+    {
+      "locale": "fr",
+      "title": "Synthia, une memoire scientifique explicable",
+      "voice": "alloy",
+      "narration": "Synthia est un systeme experimental d'intelligence synthetique pour la biologie et la classification. Il organise les concepts, les relations et leurs traces de provenance sans transformer une demonstration en autorite automatique. Dans le Trace Lab, chaque memoire candidate peut etre examinee, comparee et corrigee. Les etats de verite, d'indetermination et de faussete restent visibles afin de preserver l'incertitude. Les donnees peuvent rester locales, les resultats demeurent explicables, et toute conclusion importante exige une revue humaine. Explorez la pre-alpha publique et son code educatif sur synthia point securedme point ca."
+    },
+    {
+      "locale": "en",
+      "title": "Synthia, an explainable scientific memory",
+      "voice": "alloy",
+      "narration": "Synthia is an experimental synthetic intelligence system for biology and classification. It organizes concepts, relationships, and provenance traces without turning a demonstration into automatic authority. In the Trace Lab, each candidate memory can be inspected, compared, and corrected. Truth, indeterminacy, and falsity remain visible so uncertainty is preserved instead of hidden. Data can remain local, results stay explainable, and every important conclusion requires human review. Explore the public pre-alpha and its educational source code at synthia dot securedme dot ca."
+    }
+  ],
+  "profiles": [
+    {"name": "landscape", "width": 1920, "height": 1080, "fps": 30},
+    {"name": "vertical", "width": 1080, "height": 1920, "fps": 30}
+  ],
+  "scenes": [
+    {
+      "id": "identity", "duration": 6,
+      "title_fr": "Synthia", "body_fr": "Intelligence synthetique pour la biologie et la classification.",
+      "title_en": "Synthia", "body_en": "Synthetic intelligence for biology and classification.",
+      "asset": "assets/identity.png", "fit": "cover"
+    },
+    {
+      "id": "mission", "duration": 8,
+      "title_fr": "Comprendre sans masquer l'incertitude", "body_fr": "Concepts, relations et provenance restent visibles.",
+      "title_en": "Understand without hiding uncertainty", "body_en": "Concepts, relationships, and provenance remain visible.",
+      "asset": "assets/biology.png", "fit": "cover"
+    },
+    {
+      "id": "system", "duration": 8,
+      "title_fr": "Une memoire scientifique candidate", "body_fr": "Chaque resultat peut etre examine, compare et corrige.",
+      "title_en": "A candidate scientific memory", "body_en": "Every result can be inspected, compared, and corrected.",
+      "asset": "assets/identity-system.png", "fit": "cover"
+    },
+    {
+      "id": "trace-lab", "duration": 8,
+      "title_fr": "Trace Lab", "body_fr": "Les traces rendent le raisonnement inspectable.",
+      "title_en": "Trace Lab", "body_en": "Trace evidence keeps reasoning inspectable.",
+      "asset": "assets/trace-lab.png", "fit": "cover"
+    },
+    {
+      "id": "tif", "duration": 7,
+      "title_fr": "Verite, indetermination, faussete", "body_fr": "L'incertitude est conservee plutot que cachee.",
+      "title_en": "Truth, indeterminacy, falsity", "body_en": "Uncertainty is preserved instead of hidden.",
+      "asset": "assets/landing-light.png", "fit": "cover"
+    },
+    {
+      "id": "cta", "duration": 8,
+      "title_fr": "Local-first. Explicable. Revu par un humain.", "body_fr": "Explorez la pre-alpha publique sur synthia.securedme.ca.",
+      "title_en": "Local-first. Explainable. Human-reviewed.", "body_en": "Explore the public pre-alpha at synthia.securedme.ca.",
+      "asset": "assets/landing-dark.png", "fit": "cover"
+    }
+  ]
+}

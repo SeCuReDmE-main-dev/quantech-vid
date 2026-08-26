@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantech-vid"
+version = "2.0.0"
+description = "Local-first agentic video studio for podcast creators"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.139.0",
+  "uvicorn[standard]==0.49.0",
+  "pydantic==2.13.4",
+  "python-dotenv==1.1.1",
+  "openai==1.109.1",
+  "playwright==1.55.0",
+  "moviepy==2.2.1",
+  "imageio-ffmpeg==0.6.0",
+  "Pillow==11.3.0",
+  "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2"]
+
+[project.urls]
+Homepage = "https://github.com/SeCuReDmE-open-source/quantech-vid"
+Repository = "https://github.com/SeCuReDmE-open-source/quantech-vid"
+Issues = "https://github.com/SeCuReDmE-open-source/quantech-vid/issues"
+
+[project.scripts]
+quantech-vid = "quantech_vid.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["quantech_vid*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

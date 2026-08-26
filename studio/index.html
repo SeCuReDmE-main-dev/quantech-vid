@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuaNTecH-ViD Studio</title>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="QuaNTecH-ViD accueil">
+      <span class="brand-mark">QV</span>
+      <span><strong>QuaNTecH-ViD</strong><small>Local production studio</small></span>
+    </a>
+    <div class="status"><span id="healthDot"></span><span id="healthText">Connexion...</span></div>
+  </header>
+
+  <main>
+    <aside class="rail" aria-label="Navigation du studio">
+      <button class="rail-button active" data-view="projects">Projets</button>
+      <button class="rail-button" data-view="render">Rendus</button>
+      <button class="rail-button" data-view="captures">Captures</button>
+      <button class="rail-button" data-view="system">Systeme</button>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-head">
+        <div>
+          <p class="eyebrow">PRODUCTION LOCALE</p>
+          <h1>Studio de videos promotionnelles</h1>
+          <p>Composez, narrez, validez et empaquetez les productions SecuredMe depuis une surface privee.</p>
+        </div>
+        <button id="refreshButton" class="button secondary">Actualiser</button>
+      </div>
+
+      <section class="project-band" aria-labelledby="projectTitle">
+        <div class="project-visual" aria-hidden="true">
+          <span>S</span>
+        </div>
+        <div class="project-copy">
+          <p class="eyebrow">PROJET ACTIF</p>
+          <h2 id="projectTitle">Synthia Scientific Memory System</h2>
+          <p id="projectMeta">Chargement du manifeste...</p>
+          <div class="project-actions">
+            <button id="validateButton" class="button secondary">Valider le projet</button>
+            <a class="button ghost" href="https://synthia.securedme.ca" target="_blank" rel="noreferrer">Voir Synthia</a>
+          </div>
+        </div>
+        <div class="project-score">
+          <strong id="validationScore">--</strong>
+          <span>Contrat</span>
+        </div>
+      </section>
+
+      <section class="production-grid">
+        <div class="render-panel">
+          <div class="section-head">
+            <div><p class="eyebrow">NOUVEAU RENDU</p><h2>Production Synthia</h2></div>
+          </div>
+          <form id="renderForm">
+            <label>Manifeste
+              <select id="manifestSelect" required></select>
+            </label>
+            <div class="form-row">
+              <label>Langue
+                <select id="localeSelect"><option value="fr">Francais</option><option value="en">English</option></select>
+              </label>
+              <label>Format
+                <select id="profileSelect"><option value="landscape">16:9</option><option value="vertical">9:16</option></select>
+              </label>
+            </div>
+            <label class="check"><input id="silentCheck" type="checkbox"> Rendu technique silencieux</label>
+            <button class="button primary" type="submit">Lancer le rendu</button>
+          </form>
+        </div>
+
+        <div class="queue-panel">
+          <div class="section-head">
+            <div><p class="eyebrow">FILE ACTIVE</p><h2>Progression</h2></div>
+          </div>
+          <div id="jobEmpty" class="empty">Aucun rendu lance dans cette session.</div>
+          <div id="jobView" class="job hidden">
+            <div class="job-row"><strong id="jobName">Rendu</strong><span id="jobStatus">En attente</span></div>
+            <div class="progress"><span id="progressBar"></span></div>
+            <div class="job-row"><small id="jobId"></small><strong id="jobPercent">0%</strong></div>
+            <p id="jobError" class="error hidden"></p>
+            <div id="artifactList" class="artifacts"></div>
+            <button id="cancelButton" class="button danger hidden">Annuler</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="system-strip">
+        <div><span>Rendu</span><strong>H.264 / AAC</strong></div>
+        <div><span>Narration</span><strong>OpenAI TTS + cache</strong></div>
+        <div><span>Persistance</span><strong>SQLite + fichiers</strong></div>
+        <div><span>Acces</span><strong>Loopback uniquement</strong></div>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
