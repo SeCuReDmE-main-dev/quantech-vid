@@ -60,7 +60,7 @@ Provider support is capability-based. Official APIs and trusted MCP servers rece
 Python 3.12 or newer is required.
 
 ```powershell
-git clone https://github.com/SeCuReDmE-open-source/quantech-vid.git
+git clone https://github.com/SeCuReDmE-main-dev/quantech-vid.git
 cd quantech-vid
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1

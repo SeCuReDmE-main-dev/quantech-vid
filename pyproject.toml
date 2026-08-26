@@ -26,9 +26,9 @@ dependencies = [
 dev = ["pytest==8.4.2"]
 
 [project.urls]
-Homepage = "https://github.com/SeCuReDmE-open-source/quantech-vid"
-Repository = "https://github.com/SeCuReDmE-open-source/quantech-vid"
-Issues = "https://github.com/SeCuReDmE-open-source/quantech-vid/issues"
+Homepage = "https://github.com/SeCuReDmE-main-dev/quantech-vid"
+Repository = "https://github.com/SeCuReDmE-main-dev/quantech-vid"
+Issues = "https://github.com/SeCuReDmE-main-dev/quantech-vid/issues"
 
 [project.scripts]
 quantech-vid = "quantech_vid.cli:main"
