@@ -6,6 +6,6 @@ openai==1.109.1
 playwright==1.55.0
 moviepy==2.2.1
 imageio-ffmpeg==0.6.0
-Pillow==11.3.0
+Pillow==12.3.0
 httpx==0.28.1
 pytest==8.4.2
