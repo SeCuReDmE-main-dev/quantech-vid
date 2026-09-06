@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
+import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -13,6 +16,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from .config import Settings
 from .process import run_command
+from .scene3d import (SCENE3D_DEADLINE_SECONDS, Scene3DError, bundle_identity,
+                      capture_scene_frames, validate_project_bounds)
 from .schemas import ProjectManifest, Scene
 from .subtitles import write_subtitles
 from .tts import silent_wav, synthesize
@@ -64,14 +69,34 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, wi
             lines.append(current)
             current = word
         else:
-            lines.append(word)
-            current = ""
+            chunk = ""
+            for character in word:
+                candidate = chunk + character
+                if not chunk or draw.textbbox((0, 0), candidate, font=font)[2] <= width:
+                    chunk = candidate
+                else:
+                    lines.append(chunk)
+                    chunk = character
+            current = chunk
     if current:
         lines.append(current)
     return lines
 
 
-def compose_frame(asset: Path, scene: Scene, width: int, height: int, locale: str) -> Image.Image:
+def _bounded_notice_lines(draw: ImageDraw.ImageDraw, text: str, width: int,
+                          preferred_size: int, max_lines: int = 6) -> tuple[ImageFont.ImageFont, list[str]]:
+    for size in range(preferred_size, 9, -1):
+        font = _font(size, bold=True)
+        lines = _wrap(draw, text, font, width)
+        if len(lines) <= max_lines:
+            return font, lines
+    font = _font(10, bold=True)
+    lines = _wrap(draw, text, font, width)
+    return font, lines[:max_lines]
+
+
+def compose_frame(asset: Path, scene: Scene, width: int, height: int, locale: str,
+                  disclosure: str = "") -> Image.Image:
     with Image.open(asset) as opened:
         source = opened.convert("RGB")
     if scene.fit == "contain":
@@ -91,8 +116,24 @@ def compose_frame(asset: Path, scene: Scene, width: int, height: int, locale: st
     title_font = _font(max(34, int(width * (0.052 if vertical else 0.027))), bold=True)
     body_font = _font(max(22, int(width * (0.032 if vertical else 0.015))))
     label_font = _font(max(18, int(width * (0.023 if vertical else 0.011))), bold=True)
+    if scene.notice:
+        banner_margin = max(12, int(width * 0.035))
+        banner_font, notice_lines = _bounded_notice_lines(
+            overlay_draw, scene.notice, width - 2 * banner_margin,
+            preferred_size=max(12, min(24, int(width * 0.018))), max_lines=6,
+        )
+        line_height = max(12, int(banner_font.size * 1.18))
+        banner_height = min(panel_top - 4, banner_margin * 2 + line_height * (len(notice_lines) + 1))
+        overlay_draw.rectangle((0, 0, width, banner_height), fill=(3, 17, 20, 238))
+        overlay_draw.text((banner_margin, banner_margin // 2), "QuaNTecH-ViD / SecuredMe",
+                          font=banner_font, fill="#68f5d1")
+        notice_y = banner_margin // 2 + line_height
+        for line in notice_lines:
+            overlay_draw.text((banner_margin, notice_y), line, font=banner_font, fill="#fff2b2")
+            notice_y += line_height
     y = panel_top + int(height * 0.035)
-    overlay_draw.text((margin, y), f"SYNTHIA  /  {locale.upper()}", font=label_font, fill=accent)
+    overlay_draw.text((margin, y), f"QuaNTecH-ViD / SecuredMe / {locale.upper()}",
+                      font=label_font, fill=accent)
     y += int(label_font.size * 1.9)
     title, body = scene.copy_for(locale)
     for line in _wrap(overlay_draw, title, title_font, width - 2 * margin):
@@ -102,6 +143,14 @@ def compose_frame(asset: Path, scene: Scene, width: int, height: int, locale: st
     for line in _wrap(overlay_draw, body, body_font, width - 2 * margin)[:3]:
         overlay_draw.text((margin, y), line, font=body_font, fill="#d7e8e5")
         y += int(body_font.size * 1.35)
+    if disclosure:
+        disclosure_font = _font(max(10, min(16, int(width * 0.011))))
+        disclosure_text = _wrap(overlay_draw, disclosure, disclosure_font,
+                                width - 2 * margin)[0]
+        disclosure_y = height - disclosure_font.size - 4
+        overlay_draw.rectangle((0, disclosure_y - 2, width, height), fill=(3, 17, 20, 238))
+        overlay_draw.text((margin, disclosure_y), disclosure_text,
+                          font=disclosure_font, fill="#b9cbc8")
     return Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
 
 
@@ -162,7 +211,10 @@ def verify_media(
         "audio": "audio: aac" in probe,
     }
     try:
-        sample_times = [0.05, max(0.05, duration / 2), max(0.05, duration - 0.05)]
+        # Stay two frames inside the tail; seeking on the container duration can land past
+        # the final decodable frame even when the timeline duration is correct.
+        tail_guard = max(0.05, 2 / fps)
+        sample_times = [0.05, max(0.05, duration / 2), max(0.05, duration - tail_guard)]
         brightness = [_sample_brightness(path, second) for second in sample_times]
         checks["not_black"] = min(brightness) > 4.0
         checks["sample_brightness"] = brightness
@@ -241,6 +293,39 @@ def _render_webm(source: Path, target: Path, duration: float, cancelled: Callabl
     )
 
 
+def _render_sequence_mp4(timeline: Path, narration: Path, target: Path, fps: int,
+                         total_duration: float, cancelled: Callable[[], bool]) -> None:
+    run_command(
+        [
+            imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
+            "-framerate", str(fps), "-start_number", "0", "-i", timeline / "frame-%06d.png",
+            "-i", narration, "-t", f"{total_duration:.6f}", "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart", "-shortest", target,
+        ],
+        timeout=_render_timeout(total_duration), cancelled=cancelled,
+    )
+
+
+def _link_or_copy(source: Path, target: Path) -> int:
+    try:
+        os.link(source, target)
+        return 0
+    except OSError:
+        shutil.copyfile(source, target)
+        return target.stat().st_size
+
+
+def _remove_work_dirs(output_dir: Path, work_dirs: list[Path]) -> None:
+    root = output_dir.resolve()
+    for directory in work_dirs:
+        resolved = directory.resolve()
+        if resolved.parent != root:
+            raise Scene3DError("THREED_CLEANUP_BOUNDARY_FAILED")
+        if resolved.is_dir():
+            shutil.rmtree(resolved)
+
+
 def render_project(
     settings: Settings,
     manifest_path: Path,
@@ -269,29 +354,103 @@ def render_project(
     notify(20)
 
     frame_paths: list[Path] = []
+    animated = any(scene.visual_3d is not None for scene in manifest.scenes)
+    timeline = output_dir / "timeline"
+    work_dirs: list[Path] = []
+    frame_bytes = 0
+    if animated:
+        if not manifest.scene3d_binding or manifest.scene3d_binding != bundle_identity().binding:
+            raise Scene3DError("THREED_BUNDLE_MISMATCH")
+        if manifest.scene3d_frame_byte_limit is None:
+            raise Scene3DError("THREED_FRAME_BYTES_LIMIT_EXCEEDED")
+        validate_project_bounds(manifest.scenes, profile.width, profile.height, profile.fps,
+                                manifest.scene3d_frame_byte_limit)
+        timeline.mkdir(parents=True, exist_ok=True)
+        work_dirs.append(timeline)
+    scene3d_started = time.monotonic()
+    frame_number = 0
     for index, scene in enumerate(manifest.scenes):
         if is_cancelled():
             raise InterruptedError("Render cancelled")
         asset = settings.require_allowed_path(manifest_path.parent / scene.asset)
-        frame = compose_frame(asset, scene, profile.width, profile.height, locale)
-        frame_path = output_dir / f"scene-{index + 1:02}.png"
-        frame.save(frame_path, quality=95)
-        frame_paths.append(frame_path)
+        if animated and scene.visual_3d is not None:
+            raw_dir = output_dir / f"scene3d-{index + 1:02}"
+            work_dirs.append(raw_dir)
+            remaining = manifest.scene3d_frame_byte_limit - frame_bytes
+            try:
+                deadline_remaining = SCENE3D_DEADLINE_SECONDS - (time.monotonic() - scene3d_started)
+                if deadline_remaining <= 0:
+                    raise Scene3DError("THREED_RENDER_DEADLINE_EXCEEDED")
+                raw_paths, _ = capture_scene_frames(
+                    visual=scene.visual_3d, title=scene.copy_for(locale)[0], duration=scene.duration,
+                    width=profile.width, height=profile.height, fps=profile.fps,
+                    output_dir=raw_dir, frame_byte_limit=max(1, remaining),
+                    cancelled=is_cancelled, deadline_seconds=deadline_remaining,
+                )
+                raw_remaining = sum(path.stat().st_size for path in raw_paths)
+                for raw in raw_paths:
+                    target = timeline / f"frame-{frame_number:06d}.png"
+                    with compose_frame(raw, scene, profile.width, profile.height, locale,
+                                       manifest.disclosure) as composed:
+                        with io.BytesIO() as encoded:
+                            composed.save(encoded, format="PNG", optimize=True)
+                            payload = encoded.getvalue()
+                    raw_size = raw.stat().st_size
+                    projected = frame_bytes + (raw_remaining - raw_size) + len(payload)
+                    if projected > manifest.scene3d_frame_byte_limit:
+                        raise Scene3DError("THREED_FRAME_BYTES_LIMIT_EXCEEDED")
+                    target.write_bytes(payload)
+                    frame_bytes += len(payload)
+                    raw_remaining -= raw_size
+                    raw.unlink(missing_ok=True)
+                    frame_number += 1
+            except BaseException:
+                _remove_work_dirs(output_dir, work_dirs)
+                raise
+            raw_dir.rmdir()
+            work_dirs.remove(raw_dir)
+        else:
+            frame = compose_frame(asset, scene, profile.width, profile.height, locale,
+                                  manifest.disclosure)
+            frame_path = output_dir / f"scene-{index + 1:02}.png"
+            frame.save(frame_path, quality=95)
+            frame.close()
+            frame_paths.append(frame_path)
+            if animated:
+                frame_bytes += frame_path.stat().st_size
+                if frame_bytes > manifest.scene3d_frame_byte_limit:
+                    _remove_work_dirs(output_dir, work_dirs)
+                    raise Scene3DError("THREED_FRAME_BYTES_LIMIT_EXCEEDED")
+                try:
+                    for _ in range(max(1, int(scene.duration * profile.fps + 0.999999))):
+                        frame_bytes += _link_or_copy(frame_path, timeline / f"frame-{frame_number:06d}.png")
+                        if frame_bytes > manifest.scene3d_frame_byte_limit:
+                            raise Scene3DError("THREED_FRAME_BYTES_LIMIT_EXCEEDED")
+                        frame_number += 1
+                except BaseException:
+                    _remove_work_dirs(output_dir, work_dirs)
+                    raise
         notify(20 + int(35 * (index + 1) / len(manifest.scenes)))
 
     basename = f"{manifest.slug}-{locale}-{profile.name}"
     mp4 = output_dir / f"{basename}.mp4"
     webm = output_dir / f"{basename}.webm"
     try:
-        _render_mp4(
-            frame_paths, [scene.duration for scene in manifest.scenes], narration, mp4,
-            profile.fps, manifest.duration, is_cancelled,
-        )
+        if animated:
+            _render_sequence_mp4(timeline, narration, mp4, profile.fps, manifest.duration,
+                                 is_cancelled)
+        else:
+            _render_mp4(
+                frame_paths, [scene.duration for scene in manifest.scenes], narration, mp4,
+                profile.fps, manifest.duration, is_cancelled,
+            )
         notify(75)
         _render_webm(mp4, webm, manifest.duration, is_cancelled)
     except BaseException:
         mp4.unlink(missing_ok=True)
         webm.unlink(missing_ok=True)
+        if animated:
+            _remove_work_dirs(output_dir, work_dirs)
         raise
     notify(88)
 
@@ -299,8 +458,11 @@ def render_project(
     vtt = output_dir / f"{basename}.vtt"
     write_subtitles(track.narration, manifest.duration, srt, vtt)
     poster = output_dir / f"{basename}-poster.png"
-    with Image.open(frame_paths[0]) as first_frame:
+    poster_source = timeline / "frame-000000.png" if animated else frame_paths[0]
+    with Image.open(poster_source) as first_frame:
         first_frame.save(poster)
+    if animated:
+        _remove_work_dirs(output_dir, work_dirs)
     qa_path = output_dir / f"{basename}-qa.json"
     qa = verify_media(mp4, profile.width, profile.height, profile.fps, manifest.duration)
     qa["webm"] = verify_webm(webm, profile.width, profile.height, profile.fps, manifest.duration)

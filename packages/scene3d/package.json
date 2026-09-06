@@ -1,0 +1,36 @@
+{
+  "name": "@quantech/scene3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.18.1 <25",
+    "npm": ">=11.16.0 <12"
+  },
+  "packageManager": "npm@11.16.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": "./dist/browser.js"
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --format=iife --global-name=QuaNTechScene3D --platform=browser --target=es2022 --outfile=dist/browser.js --legal-comments=linked",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check": "npm test"
+  },
+  "dependencies": {
+    "three": "0.185.1",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.4",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}
