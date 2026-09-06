@@ -6,7 +6,7 @@ Build QuaNTecH-ViD into a provider-neutral side-panel studio whose videos earn a
 
 ## Current truth
 
-The repository currently contains a tested local FastAPI/SQLite/MoviePy renderer, studio UI, project manifests, Chrome loopback capture bridge, subtitles, provenance, and QA artifacts.
+The repository currently contains a tested local FastAPI/SQLite/direct-FFmpeg renderer, studio UI, project manifests, Chrome loopback capture bridge, subtitles, provenance, and QA artifacts.
 
 The full side panel, WebMCP tools, OpenAI Agents SDK orchestration, avatar workflow, Google Vids bridge, Microsoft Clipchamp handoff, and publishing adapters are planned MVP work. Preserve this distinction in code and documentation.
 

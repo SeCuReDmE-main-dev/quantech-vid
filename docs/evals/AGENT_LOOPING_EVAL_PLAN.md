@@ -2,7 +2,7 @@
 
 ## Portée
 
-Ce plan prépare l’intégration WebMCP et OpenAI Agents SDK autour du moteur QuaNTecH‑ViD. Le dépôt actuel expose un studio FastAPI local, des jobs SQLite et un pipeline de rendu MoviePy/FFmpeg. Les outils WebMCP, le side panel complet et l’orchestration Agents SDK représentent la prochaine couche; ce document évite de les présenter comme déjà livrés.
+Ce plan prépare l’intégration WebMCP et OpenAI Agents SDK autour du moteur QuaNTecH‑ViD. Le dépôt actuel expose un studio FastAPI local, des jobs SQLite et un pipeline de rendu FFmpeg direct. Les outils WebMCP, le side panel complet et l’orchestration Agents SDK représentent la prochaine couche; ce document évite de les présenter comme déjà livrés.
 
 ## Contrat proposé
 
