@@ -6,7 +6,7 @@
 
 QuaNTecH-ViD is an open-source, local-first production studio for podcast creators who want distinctive, source-faithful videos with control over scenes, voice, avatar, approvals, and publishing.
 
-The working core already provides a FastAPI studio, SQLite render jobs, Playwright capture, MoviePy/FFmpeg rendering, OpenAI text-to-speech, a Chrome capture bridge, subtitles, provenance, and deterministic tests. The nine-day WebMCP build adds the agentic side panel and provider adapters described below.
+The working core already provides a FastAPI studio, SQLite render jobs, Playwright capture, direct FFmpeg rendering, OpenAI text-to-speech, a Chrome capture bridge, subtitles, provenance, and deterministic tests. The nine-day WebMCP build adds the agentic side panel and provider adapters described below.
 
 ## Product quality contract
 
@@ -49,7 +49,8 @@ Provider support is capability-based. Official APIs and trusted MCP servers rece
 - SQLite render queue and restart recovery;
 - local assets, captures, caches, and output;
 - Playwright site capture;
-- MoviePy with bundled FFmpeg;
+- direct, bounded FFmpeg execution through `imageio-ffmpeg`;
+- licensed platform fonts (Segoe UI on Windows, DejaVu/Liberation on Linux) with a bundled Pillow fallback and optional `QUANTECH_VID_FONT_REGULAR` / `QUANTECH_VID_FONT_BOLD` overrides;
 - OpenAI narration cached by content hash;
 - MP4, WebM, SRT, VTT, poster, provenance, and QA artifacts;
 - Chrome extension contract limited to the local studio;

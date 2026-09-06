@@ -9,7 +9,7 @@ The public repository starts from the local-first v2 reconstruction. Legacy Node
 | Check | Result |
 |---|---|
 | Python | 3.13.7 |
-| Python tests | 9 passed |
+| Python tests | 23 passed |
 | Real short render | passed |
 | Chrome extension contract | 1 passed |
 | Chrome Webpack build | passed |
@@ -19,7 +19,7 @@ The public repository starts from the local-first v2 reconstruction. Legacy Node
 | Sensitive filenames | 0 |
 | Git diff whitespace check | passed |
 
-Five dependency deprecation warnings were observed during Python tests. They concern Starlette/httpx compatibility and MoviePy with NumPy 2.5; they are maintenance signals rather than test failures.
+The direct-FFmpeg renderer removes the former MoviePy/NumPy compatibility warning path. The Python 3.13 security slice passes with two upstream deprecation warnings in the FastAPI/Starlette test-client stack.
 
 ## Hosted CI
 

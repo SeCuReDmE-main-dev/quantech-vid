@@ -3,13 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
 import wave
 from pathlib import Path
 
 import imageio_ffmpeg
 
 from .config import Settings
+from .process import run_command
 
 
 def narration_key(text: str, voice: str, model: str) -> str:
@@ -35,7 +35,7 @@ def normalize_audio(source: Path, target: Path, duration: float) -> Path:
         "-i", str(source), "-af", "apad", "-t", f"{duration:.3f}",
         "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(target),
     ]
-    subprocess.run(command, check=True, capture_output=True)
+    run_command(command, timeout=max(30.0, min(180.0, duration * 3.0)))
     return target
 
 

@@ -3,24 +3,33 @@
   "version": "1.0.3",
   "description": "Loopback-only capture bridge for QuaNTecH-ViD studio",
   "main": "background.js",
+  "private": true,
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24.18.1 <25",
+    "npm": "11.16.0"
+  },
   "scripts": {
     "build": "webpack --config webpack.config.js",
     "watch": "webpack --config webpack.config.js --watch",
-    "test:contract": "node --test tests/extension-contract.test.mjs",
+    "test:contract": "node --test tests/*.test.mjs",
     "package": "npm run build && web-ext build -s dist/ -a releases/",
     "dev": "web-ext run -s dist/"
   },
   "dependencies": {},
+  "overrides": {
+    "image-size": "npm:image-size-next@2.1.1"
+  },
   "devDependencies": {
-    "@babel/core": "^7.22.5",
-    "@babel/preset-env": "^7.22.5",
+    "@babel/core": "7.29.7",
+    "@babel/preset-env": "7.29.7",
     "@types/chrome": "^0.0.246",
-    "babel-loader": "^9.1.2",
-    "copy-webpack-plugin": "^11.0.0",
+    "babel-loader": "9.2.1",
+    "copy-webpack-plugin": "14.0.0",
     "css-loader": "^7.1.2",
     "style-loader": "^4.0.0",
-    "web-ext": "^7.8.0",
-    "webpack": "^5.88.0",
-    "webpack-cli": "^5.1.4"
+    "web-ext": "10.6.0",
+    "webpack": "5.110.3",
+    "webpack-cli": "5.1.4"
   }
 }
