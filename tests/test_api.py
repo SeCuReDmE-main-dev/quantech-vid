@@ -73,6 +73,34 @@ def pair(client: TestClient, actor_id: str = "teacher") -> tuple[dict, dict]:
     return body, headers
 
 
+def test_provider_authentication_never_mints_local_production_authority(api) -> None:
+    from quantech_vid.engines import CodexEngineAdapter
+    client, app, root = api
+    connection = CodexEngineAdapter(resolver=lambda _: None).inspect()
+    connection.auth.state = "confirmed"
+    connection.auth.method = "chatgpt"
+    connection.auth.reason_code = "SYNTHETIC_AUTH_CONFIRMED"
+
+    class AuthenticatedFixture:
+        def inspect(self, *, timeout):
+            return connection
+
+    app.state.engine_inspectors["openai_codex"] = AuthenticatedFixture()
+    forged = {**BASE_HEADERS, "authorization": "Bearer synthetic-provider-login-not-studio-token"}
+    assert client.post("/api/v2/engines/openai_codex/inspect", headers=forged).status_code == 401
+    _, headers = pair(client)
+    tables = ("actors", "sessions", "projects", "render_plans", "production_grants", "production_jobs")
+    def counts():
+        with sqlite3.connect(root / "runtime" / "production.sqlite3") as db:
+            return tuple(db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)
+    before = counts()
+    response = client.post("/api/v2/engines/openai_codex/inspect", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["connection"]["auth"]["state"] == "confirmed"
+    assert response.json()["connection"]["production"] == "unavailable"
+    assert counts() == before
+
+
 def test_engine_inspection_is_human_only_filtered_and_not_production(api) -> None:
     from quantech_vid.engines import CodexEngineAdapter
     client, app, _ = api

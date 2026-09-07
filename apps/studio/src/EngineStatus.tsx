@@ -15,7 +15,7 @@ export function EngineStatus({api,disabled}:{api:StudioAPI;disabled:boolean}) {
     }catch{if(live.current)setError('Inspection unavailable. No login or production was started.');}
     finally{inFlight.current=false;if(live.current)setPending(null);}
   }
-  return <>{engineProviders.map(provider=>{const result=results[provider],connection=result?.connection;
+  return <><p>Provider sign-in is not studio permission. Local pairing, admitted sources and approval of an exact render plan remain separate.</p>{engineProviders.map(provider=>{const result=results[provider],connection=result?.connection;
     return <div key={provider}><strong>{names[provider]}</strong>
       <p>Connector not qualified in this build. No credentials requested; no paid fallback.</p>
       <button disabled={disabled||!!pending} onClick={()=>void inspect(provider)}>Inspect {names[provider]}</button>

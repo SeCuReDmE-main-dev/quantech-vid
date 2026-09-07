@@ -15,6 +15,7 @@ it('does not probe on mount and separates authentication from production',async(
   fireEvent.click(screen.getByRole('button',{name:'Inspect Codex · ChatGPT'}));
   await screen.findByText('confirmed · chatgpt');
   expect(screen.getByText(/inspection is not a production capability test/)).toBeTruthy();
+  expect(screen.getByText(/Provider sign-in is not studio permission/)).toBeTruthy();
   expect(api.inspectEngine).toHaveBeenCalledOnce();
 });
 it('blocks inspection while unpaired or production is busy',()=>{
