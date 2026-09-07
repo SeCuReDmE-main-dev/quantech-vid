@@ -170,7 +170,8 @@ def test_real_chromium_capture_is_animated_offline_and_cleans_on_cancel(tmp_path
     assert list(final_limit.glob("*.png")) == []
 
 
-def test_real_scene3d_pipeline_produces_qa_valid_mp4_and_webm(tmp_path: Path,
+@pytest.mark.parametrize("kind", ["title", "diagram", "annotated-object", "comparison", "code", "presentation"])
+def test_real_scene3d_pipeline_produces_qa_valid_mp4_and_webm(tmp_path: Path, kind: str,
                                                                monkeypatch: pytest.MonkeyPatch) -> None:
     executable = browser_path()
     if executable is None:
@@ -189,7 +190,9 @@ def test_real_scene3d_pipeline_produces_qa_valid_mp4_and_webm(tmp_path: Path,
         profiles=[Profile(name="square", width=320, height=320, fps=12)],
         scenes=[Scene(id="scene-1", duration=1, title_fr="Scène", title_en="Scene",
                       body_en="Original source context.", notice="hypothesis=1; suspended=1",
-                      asset=source.name, visual_3d=visual("spin"))],
+                      asset=source.name, visual_3d=Visual3DConfig(kind=kind,
+                          lines=["Admitted source", "Human review", "Local rendering", "Verified result"],
+                          accent="#14B8A6", animation="spin"))],
         scene3d_binding=identity.binding, scene3d_frame_byte_limit=20_000_000)
     manifest_path = tmp_path / "project.json"
     manifest_path.write_text(manifest.model_dump_json(), encoding="utf-8")
