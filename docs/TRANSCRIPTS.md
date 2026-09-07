@@ -1,9 +1,9 @@
 # Manual transcript and caption contract
 
-QuaNTecH-ViD supports human-authored, timed caption segments on each v2 locale
-track. This is a temporary manual workflow: it does not run speech recognition,
-import audio, validate the truth of a statement, or prove that a source owns the
-spoken words.
+QuaNTecH-ViD supports operator-authored or reviewed timed caption segments on each
+v2 locale track. Manual editing remains available without a model. A separately
+configured experimental local ASR path can propose text from an admitted WAV;
+see ASR_ADMISSION.md. Neither path validates truth or proves ownership of words.
 
 `TrackV2.segments` is optional, limited to 128 entries, and omitted when empty.
 That omission preserves the canonical serialization and hash of project revisions
