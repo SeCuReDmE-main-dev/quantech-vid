@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 from typing import Callable
 
-from PIL import Image
 from pydantic import ValidationError
 
 from .production_schemas import SceneProjectV2
@@ -22,17 +20,20 @@ from .tool_catalog import (
     StageStoryboardInput,
     TOOL_BY_NAME,
 )
+from .vision import VisionAdapter, VisionBoundaryError, decode_raster
 
 
 class ToolService:
     def __init__(self, store: ProductionStore, production: ProductionService, actor: dict,
                  *, max_payload_bytes: int = 262_144,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic,
+                 vision: VisionAdapter | None = None) -> None:
         self.store = store
         self.production = production
         self.actor = actor
         self.max_payload_bytes = max_payload_bytes
         self.clock = clock
+        self.vision = vision if vision is not None else VisionAdapter()
 
     def dispatch(self, name: str, arguments: object) -> dict:
         if self.actor.get("kind") != "agent":
@@ -64,6 +65,8 @@ class ToolService:
             return {"ok": True, "tool": name, "result": result, "error": None}
         except ContractError as exc:
             return self._error(name, exc.code, exc.code in {"REVISION_CONFLICT", "STALE_PROJECT_REVISION"})
+        except VisionBoundaryError as exc:
+            return self._error(name, exc.code, False)
         except Exception:
             return self._error(name, "INTERNAL_TOOL_ERROR", False)
 
@@ -136,13 +139,17 @@ class ToolService:
 
     def _analyze_visual(self, payload: AnalyzeVisualAssetInput) -> dict:
         revision = self._revision(payload)
-        row = self.store.source_rows(self.actor, [payload.source_asset_id], "analyze")[0]
-        with Image.open(Path(row["internal_path"])) as image:
-            width, height, image_format, mode = image.width, image.height, image.format, image.mode
+        content, media_type, source_hash = self.store.source_analysis(
+            self.actor, payload.source_asset_id)
+        representation = decode_raster(content, media_type)
         return {"project_hash": revision.document_hash,
-                "asset": {"id": row["id"], "sha256": row["sha256"], "media_type": row["media_type"],
-                          "width": width, "height": height, "format": image_format, "color_mode": mode},
-                "semantic_vision": {"status": "unavailable", "reason_code": "VISION_PROVIDER_NOT_CONFIGURED"},
+                "source_sha256": source_hash,
+                "asset": {"id": payload.source_asset_id, "sha256": source_hash,
+                          "media_type": media_type, "width": representation.width,
+                          "height": representation.height, "format": representation.format,
+                          "color_mode": representation.color_mode},
+                "representation_2d": representation.model_dump(mode="json"),
+                "semantic_vision": self.vision.analyze(content, media_type, representation),
                 "effect": "read_only"}
 
     def _stage_storyboard(self, payload: StageStoryboardInput) -> dict:

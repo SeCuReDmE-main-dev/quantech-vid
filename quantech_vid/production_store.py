@@ -25,6 +25,19 @@ from .scene3d import (MAX_SCENE3D_FRAME_BYTES, MAX_SCENE3D_FRAMES, Scene3DUnavai
 
 MAX_SOURCE_PREVIEW_BYTES = 10 * 1024 * 1024
 
+_SOURCE_DERIVATIVE_ERRORS = {
+    "render": {
+        "unsupported": ("SOURCE_PREVIEW_UNSUPPORTED_MEDIA", 415),
+        "too_large": ("SOURCE_PREVIEW_TOO_LARGE", 413),
+        "integrity": ("SOURCE_PREVIEW_INTEGRITY_FAILED", 409),
+    },
+    "analyze": {
+        "unsupported": ("SOURCE_ANALYSIS_UNSUPPORTED_MEDIA", 415),
+        "too_large": ("SOURCE_ANALYSIS_TOO_LARGE", 413),
+        "integrity": ("SOURCE_ANALYSIS_INTEGRITY_FAILED", 409),
+    },
+}
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -375,38 +388,52 @@ class ProductionStore:
             raise ContractError("SOURCE_OPERATION_FORBIDDEN", 403)
         return rows  # type: ignore[return-value]
 
-    def source_preview(self, actor: dict, source_id: str) -> tuple[bytes, str]:
-        """Return a verified admitted derivative, never an uploaded original."""
-        row = self.source_rows(actor, [source_id], operation="render")[0]
+    def _verified_source_derivative(self, actor: dict, source_id: str,
+                                    operation: str) -> tuple[bytes, str, str]:
+        """Read one admitted derivative under a fixed internal operation boundary."""
+        if operation not in _SOURCE_DERIVATIVE_ERRORS:
+            raise ValueError("unsupported internal source operation")
+        errors = _SOURCE_DERIVATIVE_ERRORS[operation]
+        row = self.source_rows(actor, [source_id], operation=operation)[0]
         media_type = row["media_type"]
         if media_type not in {"image/png", "image/jpeg", "image/webp"}:
-            raise ContractError("SOURCE_PREVIEW_UNSUPPORTED_MEDIA", 415)
+            raise ContractError(*errors["unsupported"])
         try:
             path = Path(row["internal_path"])
             if path.is_symlink():
-                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+                raise ContractError(*errors["integrity"])
             resolved = path.resolve(strict=True)
             admitted_root = (self.path.parent / "admitted-assets").resolve(strict=True)
             if admitted_root not in resolved.parents or not resolved.is_file():
-                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+                raise ContractError(*errors["integrity"])
             expected_size = int(row["size"])
             actual_size = resolved.stat().st_size
             if expected_size > MAX_SOURCE_PREVIEW_BYTES or actual_size > MAX_SOURCE_PREVIEW_BYTES:
-                raise ContractError("SOURCE_PREVIEW_TOO_LARGE", 413)
+                raise ContractError(*errors["too_large"])
             if expected_size < 0 or actual_size != expected_size:
-                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+                raise ContractError(*errors["integrity"])
             with resolved.open("rb") as stream:
                 payload = stream.read(MAX_SOURCE_PREVIEW_BYTES + 1)
             if len(payload) > MAX_SOURCE_PREVIEW_BYTES:
-                raise ContractError("SOURCE_PREVIEW_TOO_LARGE", 413)
+                raise ContractError(*errors["too_large"])
             if (len(payload) != expected_size
                     or not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), row["sha256"])):
-                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
-            return payload, media_type
+                raise ContractError(*errors["integrity"])
+            return payload, media_type, row["sha256"]
         except ContractError:
             raise
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
-            raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409) from exc
+            raise ContractError(*errors["integrity"]) from exc
+
+    def source_preview(self, actor: dict, source_id: str) -> tuple[bytes, str]:
+        """Return a verified admitted derivative, never an uploaded original."""
+        payload, media_type, _ = self._verified_source_derivative(
+            actor, source_id, operation="render")
+        return payload, media_type
+
+    def source_analysis(self, actor: dict, source_id: str) -> tuple[bytes, str, str]:
+        """Return a verified admitted derivative under analyze rights."""
+        return self._verified_source_derivative(actor, source_id, operation="analyze")
 
     def list_sources(self, actor: dict) -> list[SourceAsset]:
         with self._connect() as db:

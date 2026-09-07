@@ -107,9 +107,59 @@ def test_direct_dispatch_validates_and_stages_without_hidden_authority(tools_fix
     analysis = service.dispatch("quantech_analyze_visual_asset", {**base,
         "source_asset_id": tools_fixture["asset"].id})
     assert analysis["ok"] is True
+    assert analysis["result"]["source_sha256"] == tools_fixture["asset"].sha256
+    assert analysis["result"]["representation_2d"] == {
+        "kind": "verified_raster_2d", "media_type": "image/png", "format": "PNG",
+        "width": 96, "height": 64, "color_mode": "RGB"}
     assert analysis["result"]["semantic_vision"] == {
-        "status": "unavailable", "reason_code": "VISION_PROVIDER_NOT_CONFIGURED"}
+        "status": "unavailable", "reason_code": "VISION_PROVIDER_NOT_CONFIGURED",
+        "effect": "proposal_only", "observations": []}
     assert "path" not in json.dumps(analysis)
+
+
+@pytest.mark.parametrize("mutation,code", [
+    ("scope", "SOURCE_NOT_FOUND"),
+    ("operation", "SOURCE_OPERATION_FORBIDDEN"),
+    ("hash", "SOURCE_ANALYSIS_INTEGRITY_FAILED"),
+    ("path", "SOURCE_ANALYSIS_INTEGRITY_FAILED"),
+    ("mime", "SOURCE_ANALYSIS_UNSUPPORTED_MEDIA"),
+    ("dimensions", "SOURCE_ANALYSIS_TOO_LARGE"),
+])
+def test_visual_analysis_fails_closed_before_optional_transport(
+        tools_fixture: dict, mutation: str, code: str) -> None:
+    actor = tools_fixture["actor"]
+    source_id = tools_fixture["asset"].id
+    if mutation == "scope":
+        actor = {**actor, "source_ids": []}
+    else:
+        with sqlite3.connect(tools_fixture["store"].path) as db:
+            if mutation == "operation":
+                db.execute("UPDATE source_assets SET operations_json=? WHERE id=?",
+                           ('["render"]', source_id))
+            elif mutation == "hash":
+                db.execute("UPDATE source_assets SET sha256=? WHERE id=?", ("0" * 64, source_id))
+            elif mutation == "path":
+                outside = tools_fixture["settings"].root / "outside.png"
+                Image.new("RGB", (96, 64), "#345678").save(outside)
+                db.execute("UPDATE source_assets SET internal_path=? WHERE id=?",
+                           (str(outside), source_id))
+            elif mutation == "mime":
+                db.execute("UPDATE source_assets SET media_type='image/jpeg' WHERE id=?", (source_id,))
+            elif mutation == "dimensions":
+                row = db.execute("SELECT internal_path FROM source_assets WHERE id=?",
+                                 (source_id,)).fetchone()
+                image_path = Path(row[0])
+                Image.new("RGB", (4001, 4000), "#345678").save(image_path)
+                content = image_path.read_bytes()
+                db.execute("UPDATE source_assets SET size=?,sha256=? WHERE id=?",
+                           (len(content), hashlib.sha256(content).hexdigest(), source_id))
+
+    service = ToolService(tools_fixture["store"], tools_fixture["production"], actor)
+    result = service.dispatch("quantech_analyze_visual_asset", {
+        **ref(tools_fixture), "source_asset_id": source_id})
+    assert result["ok"] is False
+    assert result["error"] == {"code": code,
+        "message": "Tool request could not be completed", "retryable": False}
 
 
 def test_runtime_rejects_unknown_extra_wrong_type_oversize_and_timeout(tools_fixture: dict) -> None:
