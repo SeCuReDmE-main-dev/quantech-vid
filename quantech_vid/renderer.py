@@ -337,6 +337,8 @@ def render_project(
     progress: Callable[[int], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> list[Path]:
+    if narration_mode not in {"silent", "openai"}:
+        raise ValueError("NARRATION_MODE_UNSUPPORTED")
     notify = progress or (lambda _: None)
     is_cancelled = cancelled or (lambda: False)
     profile = next(item for item in manifest.profiles if item.name == profile_name)
