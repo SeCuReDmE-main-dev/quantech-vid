@@ -12,6 +12,7 @@ import { VerifiedVideoPreview } from './VerifiedVideoPreview';
 import { SourceMetadata } from './SourceMetadata';
 import { SourcePreview } from './SourcePreview';
 import { EngineStatus } from './EngineStatus';
+import { RevisionDiff } from './RevisionDiff';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -251,6 +252,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
           <button disabled={!document || frozen} onClick={addScene}>Add scene</button>
           <button className="primary" disabled={!paired || !document || frozen || !dirty} onClick={() => void perform('Saving project', save)}>Save project</button></div>
         <p className="fine">Draft content is saved in this browser. Pairing codes, sessions and production approvals are never stored with it.</p>
+        {document && <RevisionDiff saved={revision?.document ?? null} draft={document} />}
         {revision && <p className="fine">Project ID: <code>{revision.project_id}</code></p>}
         <form className="open-project" onSubmit={e => { e.preventDefault(); void perform('Opening saved project', async () => loadRevision(await api.read(openId.trim()))); }}>
           <label>Open a saved project ID<input value={openId} onChange={e => setOpenId(e.target.value)} placeholder="Project identifier, not a path" /></label>
