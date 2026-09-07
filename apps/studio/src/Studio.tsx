@@ -13,6 +13,7 @@ import { SourceMetadata } from './SourceMetadata';
 import { SourcePreview } from './SourcePreview';
 import { EngineStatus } from './EngineStatus';
 import { RevisionDiff } from './RevisionDiff';
+import { WorkspaceLayout } from './WorkspaceLayout';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -214,7 +215,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
       </form>
       <p className="fine">After reopening this browser, run <code>quantech-vid pairing-code</code> in your local terminal to issue a fresh ten-minute code. Reconnect, then list your saved projects. Old approvals are never restored from the browser.</p>
     </section>}
-    <main id="workspace" className="workspace" aria-busy={!!busy}>
+    <WorkspaceLayout busy={!!busy}>
       <aside className="panel sources" aria-labelledby="sources-title"><p className="eyebrow">01 · SOURCES</p><h2 id="sources-title">The material</h2>
         <p>Only content you explicitly admit belongs to this project.</p>
         <button className="primary" disabled={!paired || frozen} onClick={() => void perform('Creating a local sample', async () => adoptSource(await api.sample()))}>Create a synthetic sample</button>
@@ -323,7 +324,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
             }
           }} />}
       </section>
-    </main>
+    </WorkspaceLayout>
     <section className="production panel" aria-labelledby="production-title"><div><p className="eyebrow">04 · PRODUCTION CONTROL</p><h2 id="production-title">Prepare. Review. Then render.</h2><p>Saving a project never starts a job. Changing its revision invalidates the previous plan.</p></div>
       <button disabled={!paired || !revision || dirty || frozen || !health?.capabilities.approved_silent_render} onClick={() => void perform('Preparing a bounded plan', async () => { if (revision) { setPlan(await api.plan(revision.project_id, revision.revision, profile)); setApproved(false); setReviewed(false); setJob(null); setMedia(null); } })}>Prepare render plan</button>
       {dirty && <p className="fine">Save your changes before preparing a plan.</p>}

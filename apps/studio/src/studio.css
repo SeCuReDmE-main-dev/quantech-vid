@@ -43,9 +43,14 @@ code { font-size: .8rem; overflow-wrap: anywhere; }
 .pairing p { margin-bottom: 0; }
 .pairing form { display: flex; align-items: end; gap: .75rem; }
 .pairing label { flex: 1; }
-.workspace { margin: 1rem 2rem; display: grid; grid-template-columns: minmax(200px, 1fr) minmax(360px, 2.65fr) minmax(240px, 1.1fr); gap: 1rem; align-items: start; }
+.workspace { margin: 1rem 2rem; display: grid; grid-template-columns: minmax(200px, var(--sources-weight, 1fr)) minmax(360px, 2.65fr) minmax(240px, var(--details-weight, 1.1fr)); gap: 1rem; align-items: start; }
+.layout-controls { margin: 1rem 2rem; }
+.layout-controls summary { cursor: pointer; min-height: 42px; padding: .6rem 0; }
+.layout-sliders { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.layout-sliders label { flex: 1 1 220px; }
+.layout-sliders input { accent-color: var(--accent); }
 .sources, .properties { min-height: 28rem; }
-.sources { resize: horizontal; overflow: auto; max-width: 100%; min-width: 190px; }
+.sources { overflow: auto; max-width: 100%; min-width: 190px; }
 .sources > button { width: 100%; }
 .sources p, .properties p { font-size: .85rem; }
 .unavailable { margin-top: 1rem; }
