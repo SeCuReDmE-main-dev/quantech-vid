@@ -286,7 +286,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
               return kind === 'source-image' ? rest : { ...rest, visual_3d: { kind: kind as NonNullable<typeof s.visual_3d>['kind'],
                 accent: previous?.accent ?? '#14B8A6', animation: previous?.animation ?? 'none', lines: previous?.lines ?? [] } };
             }) });
-          }}><option value="source-image">Admitted source image</option>{['title','diagram','annotated-object','comparison','code','presentation'].map(kind => <option key={kind} value={kind}>3D · {kind}</option>)}</select></label>
+          }}><option value="source-image">Admitted source image</option>{['title','diagram','annotated-object','comparison','code','presentation','synthetic-avatar'].map(kind => <option key={kind} value={kind}>3D · {kind}</option>)}</select></label>
           {selectedScene.visual_3d && <><label>3D animation<select value={selectedScene.visual_3d.animation} onChange={e => change({ ...document,
             scenes: document.scenes.map(s => s.id === selectedScene.id && s.visual_3d ? { ...s, visual_3d: { ...s.visual_3d, animation: e.target.value as 'none' | 'spin' | 'pulse' } } : s) })}>
             <option value="none">Still</option><option value="spin">Bounded rotation</option><option value="pulse">Gentle pulse</option></select></label>

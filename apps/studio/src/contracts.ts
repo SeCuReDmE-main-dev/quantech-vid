@@ -33,7 +33,7 @@ export const claimSchema = z.object({
 export type SceneClaim = z.infer<typeof claimSchema>;
 
 export const visual3DSchema = z.object({
-  kind: z.enum(['title', 'diagram', 'annotated-object', 'comparison', 'code', 'presentation']),
+  kind: z.enum(['title', 'diagram', 'annotated-object', 'comparison', 'code', 'presentation', 'synthetic-avatar']),
   lines: z.array(z.string().min(1).max(200)).max(8), accent: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
   animation: z.enum(['none', 'spin', 'pulse']),
 }).strict();

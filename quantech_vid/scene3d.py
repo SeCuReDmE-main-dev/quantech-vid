@@ -28,7 +28,7 @@ class Scene3DUnavailable(Scene3DError):
 class Visual3DConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["title", "diagram", "annotated-object", "comparison", "code", "presentation"]
+    kind: Literal["title", "diagram", "annotated-object", "comparison", "code", "presentation", "synthetic-avatar"]
     lines: list[str] = Field(default_factory=list, max_length=8)
     accent: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
     animation: Literal["none", "spin", "pulse"]

@@ -10,7 +10,7 @@ import {
   createSceneGraph,
 } from "../dist/index.js";
 
-const kinds = ["title", "diagram", "annotated-object", "comparison", "code", "presentation"];
+const kinds = ["title", "diagram", "annotated-object", "comparison", "code", "presentation", "synthetic-avatar"];
 
 function config(kind, overrides = {}) {
   return {
@@ -24,7 +24,7 @@ function config(kind, overrides = {}) {
   };
 }
 
-test("all six templates build real bounded Three.js graphs with synthetic labels", () => {
+test("all templates build real bounded Three.js graphs with synthetic labels", () => {
   for (const kind of kinds) {
     const graph = createSceneGraph(config(kind));
     const labels = [];
@@ -50,6 +50,20 @@ test("every template retains all eight accepted labels within the resource budge
     assert.ok(graph.geometryCount <= 32 && graph.objectCount <= 64);
     graph.dispose();
   }
+});
+
+test("avatar disclosure stays stationary through deterministic root animation", () => {
+  const graph = createSceneGraph(config("synthetic-avatar"));
+  const disclosure = graph.scene.getObjectByName("persistent-avatar-disclosure");
+  assert.ok(disclosure);
+  assert.equal(disclosure.userData.label, "Synthetic avatar - no real person");
+  assert.equal(disclosure.parent, graph.scene);
+  const pose = [...disclosure.position.toArray(), ...disclosure.rotation.toArray()];
+  graph.renderAt(2);
+  assert.deepEqual([...disclosure.position.toArray(), ...disclosure.rotation.toArray()], pose);
+  graph.renderAt(0);
+  assert.equal(graph.root.rotation.y, 0);
+  graph.dispose();
 });
 
 test("animation state is deterministic for t0, t1, t0", () => {

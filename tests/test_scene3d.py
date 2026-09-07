@@ -170,7 +170,7 @@ def test_real_chromium_capture_is_animated_offline_and_cleans_on_cancel(tmp_path
     assert list(final_limit.glob("*.png")) == []
 
 
-@pytest.mark.parametrize("kind", ["title", "diagram", "annotated-object", "comparison", "code", "presentation"])
+@pytest.mark.parametrize("kind", ["title", "diagram", "annotated-object", "comparison", "code", "presentation", "synthetic-avatar"])
 def test_real_scene3d_pipeline_produces_qa_valid_mp4_and_webm(tmp_path: Path, kind: str,
                                                                monkeypatch: pytest.MonkeyPatch) -> None:
     executable = browser_path()

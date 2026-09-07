@@ -2,10 +2,11 @@ import * as THREE from "three";
 import { z } from "zod";
 
 export const SYNTHETIC_LABEL = "Synthetic representation";
+export const AVATAR_LABEL = "Synthetic avatar - no real person";
 export const BRAND = Object.freeze({ navy: "#071A2B", teal: "#14B8A6", gold: "#D4A72C" });
 
 export const SceneConfigSchema = z.object({
-  kind: z.enum(["title", "diagram", "annotated-object", "comparison", "code", "presentation"]),
+  kind: z.enum(["title", "diagram", "annotated-object", "comparison", "code", "presentation", "synthetic-avatar"]),
   title: z.string().min(1).max(200),
   lines: z.array(z.string().min(1).max(200)).max(8).default([]),
   accent: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default(BRAND.teal),
@@ -201,6 +202,27 @@ function addPresentation(root: THREE.Group, config: SceneConfig,
   root.add(planeLabel(SYNTHETIC_LABEL, 4.5, 0.38, -2.3, resources, BRAND.gold));
 }
 
+function addSyntheticAvatar(root: THREE.Group, config: SceneConfig,
+                            resources: Set<Disposable>): void {
+  // Original geometric fixture: no scan, face, external asset, or biometric input.
+  root.add(sphere(0, 0.9, 0.48, config.accent, resources));
+  root.add(box(0, -0.05, 0.86, 1.05, config.accent, resources, 0.4));
+  for (const side of [-1, 1]) {
+    root.add(box(side * 0.64, -0.12, 0.28, 0.95, BRAND.gold, resources, 0.28));
+    root.add(box(side * 0.25, -0.96, 0.32, 0.7, config.accent, resources, 0.3));
+    const eye = sphere(side * 0.16, 0.99, 0.07, BRAND.navy, resources);
+    eye.position.z = 0.43;
+    root.add(eye);
+  }
+  root.add(planeLabel(config.title, 6.5, 0.6, 2.1, resources));
+  root.add(planeLabel(SYNTHETIC_LABEL, 4.5, 0.36, -1.67, resources, BRAND.gold));
+  config.lines.forEach((line, index) => {
+    const label = planeLabel(line, 2.35, 0.38, 1.2 - Math.floor(index / 2) * 0.58, resources);
+    label.position.x = index % 2 ? 2.55 : -2.55;
+    root.add(label);
+  });
+}
+
 const BUILDERS = {
   title: addTitle,
   diagram: addDiagram,
@@ -208,6 +230,7 @@ const BUILDERS = {
   comparison: addComparison,
   code: addCode,
   presentation: addPresentation,
+  "synthetic-avatar": addSyntheticAvatar,
 } satisfies Record<SceneConfig["kind"],
   (root: THREE.Group, config: SceneConfig, resources: Set<Disposable>) => void>;
 
@@ -226,6 +249,12 @@ export function createSceneGraph(input: SceneConfigInput): SceneGraph {
   key.position.set(3, 5, 7);
   scene.add(key);
   BUILDERS[config.kind](root, config, resources);
+  if (config.kind === "synthetic-avatar") {
+    // Disclosure remains facing the camera even when the avatar root rotates.
+    const disclosure = planeLabel(AVATAR_LABEL, 6.4, 0.42, 1.65, resources, BRAND.gold);
+    disclosure.name = "persistent-avatar-disclosure";
+    scene.add(disclosure);
+  }
   const objectCount = (() => { let count = 0; scene.traverse(() => { count += 1; }); return count; })();
   const geometryCount = [...resources].filter((value) => value instanceof THREE.BufferGeometry).length;
   if (objectCount > 64 || geometryCount > 32) {
