@@ -45,7 +45,9 @@ def _resources(tmp_path: Path) -> LocalVoiceResources:
     library.write_bytes(b"synthetic espeak library")
     (espeak_data / "synthetic-data").write_bytes(b"data")
     return LocalVoiceResources(
-        isolated_python=Path(sys.executable),
+        # CI Linux installs python as a symlink; the synthetic fixture supplies
+        # its resolved executable while production continues rejecting links.
+        isolated_python=Path(sys.executable).resolve(strict=True),
         resource_root=root,
         model=_expected(model),
         voices=_expected(voices),
