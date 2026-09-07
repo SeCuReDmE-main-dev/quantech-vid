@@ -21,8 +21,10 @@ readiness remain separate fields; `unknown` is never promoted to `available` or 
 - Production stays `unavailable` for all three engines until native shell/file tools are proven
   disabled by enforceable runtime configuration. Prompt instructions are not accepted as that
   security boundary.
-- Existing API agent credentials are owner-scoped, not project-scoped. External engines must not
-  be activated until the server issues project-and-revision-scoped capabilities.
+- Existing API agent credentials are server-enforced for one project and revision. External
+  engines must receive only a capability minted for that exact scope; changing the project or
+  revision requires a new session and revocation of the old one. This is covered by
+  `tests/test_api.py::test_agent_scope_is_enforced_for_same_owner_projects_revisions_sources_and_plans`.
 - Provider output labelled `SUCCESS` is insufficient. A future execution must return a provider-
   bound artifact ID and SHA-256 accepted by `validate_artifact_receipt`.
 

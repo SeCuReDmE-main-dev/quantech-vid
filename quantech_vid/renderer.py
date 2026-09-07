@@ -456,7 +456,7 @@ def render_project(
 
     srt = output_dir / f"{basename}.srt"
     vtt = output_dir / f"{basename}.vtt"
-    write_subtitles(track.narration, manifest.duration, srt, vtt)
+    write_subtitles(track.narration, manifest.duration, srt, vtt, track.segments)
     poster = output_dir / f"{basename}-poster.png"
     poster_source = timeline / "frame-000000.png" if animated else frame_paths[0]
     with Image.open(poster_source) as first_frame:

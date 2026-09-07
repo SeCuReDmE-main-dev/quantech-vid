@@ -35,6 +35,14 @@ Observed on Windows/Chrome, 6 September 2026, against the local working tree. Th
 
 ## Reproducible automated checks
 
+The subsequent manual-caption lot passed 88 Python tests and 47 frontend tests
+locally. It adds strict timed/source-linked segments, historical omission,
+revision invalidation, safe SRT/VTT serialization, receipted transcript provenance
+and explicit verified caption loading in the player. The browser regression for
+non-bubbling track load events was fixed with direct event listeners and a
+ready-state check. Chrome then reported two decoded caption cues. See
+[the transcript contract](TRANSCRIPTS.md) for exact timings and limitations.
+
 Run from the repository root in the tested Python 3.13 virtual environment and pinned Node/npm environment:
 
 ```powershell
@@ -48,12 +56,12 @@ The frontend suite exercises strict contracts, draft recovery, undo, admission i
 
 ## Still open
 
-- A fresh CI run on a committed SHA. Integrated scoped-token Chrome retest completed a second four-second MP4/WebM render; MP4 hash `e2a6a3591b0814e48c1b699fd69fe3d224a7aed12b79af0e1dd8c9ea07c6710a`, decoded at1280×720 without a media error.
+- Baseline CI run34067223916 passed four jobs on committed SHA `fc1c21a7ed8abf60542c5577fc2ee407327cc66f`; subsequent changes require their own CI run. Integrated scoped-token Chrome retest completed a second four-second MP4/WebM render; MP4 hash `e2a6a3591b0814e48c1b699fd69fe3d224a7aed12b79af0e1dd8c9ea07c6710a`, decoded at1280×720 without a media error.
 - Full keyboard journey, focus recovery, screen-reader checks, 200/400% zoom and measured contrast.
 - Actual installation and journeys for the new companion in each browser claimed by the release.
 - Native browser-agent execution and external registry report/grade.
-- Pixel/layout qualification of all six 3D templates, external 3D imports, audio/transcription, avatars, authorized production connectors, vision inference and Scholarium integration.
+- Pixel/layout qualification of all six 3D templates, external 3D imports, audio import/automatic transcription, avatars, authorized production connectors, vision inference and Scholarium integration.
 - Full retention/deletion lifecycle. The browser currently rejects artifact previews larger than 100 MB rather than allocating unbounded memory.
-- Caption files are exported; synchronized caption display in the browser player is not yet qualified.
+- Caption files and a two-cue local browser playback path are qualified on the tested Chrome build. Cross-browser caption rendering and accessibility remain open.
 
 Do not reinterpret a render receipt as confirmation of factual accuracy, source licensing, teaching outcomes, provider availability or public publication.

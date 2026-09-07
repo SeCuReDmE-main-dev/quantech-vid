@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from .scene3d import Visual3DConfig
+from .transcripts import TranscriptSegment
 
 
 class Profile(BaseModel):
@@ -38,6 +39,9 @@ class LocaleTrack(BaseModel):
     title: str
     narration: str
     voice: str | None = None
+    segments: list[TranscriptSegment] = Field(
+        default_factory=list, max_length=128, exclude_if=lambda value: not value
+    )
 
 
 class ProjectManifest(BaseModel):

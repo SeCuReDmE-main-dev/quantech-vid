@@ -16,6 +16,7 @@ from .production_store import ProductionStore
 from .renderer import render_project
 from .scene3d import Scene3DError, validate_project_bounds
 from .schemas import LocaleTrack, Profile, ProjectManifest, Scene
+from .transcripts import build_transcript_sidecar
 
 
 class ProductionService:
@@ -72,7 +73,8 @@ class ProductionService:
                 slug=document.slug,
                 title=document.title,
                 disclosure=document.disclosure,
-                locales=[LocaleTrack(locale=t.locale, title=t.title, narration=t.narration, voice=t.voice) for t in document.tracks],
+                locales=[LocaleTrack(locale=t.locale, title=t.title, narration=t.narration,
+                                     voice=t.voice, segments=t.segments) for t in document.tracks],
                 profiles=[Profile(name=p.name, width=p.width, height=p.height, fps=p.fps) for p in document.output_profiles],
                 scenes=[Scene(id=s.id, duration=s.duration, title_fr=s.title.get("fr", ""), body_fr=s.body.get("fr", ""),
                               title_en=s.title.get("en", ""), body_en=s.body.get("en", ""),
@@ -116,6 +118,24 @@ class ProductionService:
             claims_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True, ensure_ascii=False),
                                    encoding="utf-8")
             artifacts.append(claims_path)
+            track = next(item for item in document.tracks if item.locale == plan.locale)
+            if track.segments:
+                transcript_sidecar = build_transcript_sidecar(
+                    project_id=revision.project_id,
+                    revision=revision.revision,
+                    project_hash=revision.document_hash,
+                    locale=track.locale,
+                    segments=track.segments,
+                    source_hashes={row["id"]: row["sha256"] for row in sources},
+                )
+                transcript_path = output_dir / (
+                    f"{document.slug}-{plan.locale}-{plan.profile}-transcript-provenance.json"
+                )
+                transcript_path.write_text(
+                    json.dumps(transcript_sidecar, indent=2, sort_keys=True, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                artifacts.append(transcript_path)
             total = sum(path.stat().st_size for path in artifacts)
             if total > int(plan.limits["max_output_bytes"]):
                 raise ValueError("RENDER_LIMIT_EXCEEDED")
@@ -146,6 +166,7 @@ class ProductionService:
                  ".png": "poster", ".json": "metadata"}
         if path.name.endswith("-qa.json"): role = "quality-report"
         elif path.name.endswith("-claims.json"): role = "claim-provenance"
+        elif path.name.endswith("-transcript-provenance.json"): role = "transcript-provenance"
         elif path.name.endswith("-provenance.json"): role = "provenance"
         else: role = roles.get(suffix, "artifact")
         return {"name": path.name, "role": role, "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",

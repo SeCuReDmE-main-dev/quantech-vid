@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .transcripts import TranscriptSegment, subtitle_text, timestamp_milliseconds
+
 
 def _timestamp(seconds: float, vtt: bool = False) -> str:
-    milliseconds = int(round(seconds * 1000))
+    milliseconds = timestamp_milliseconds(seconds)
     hours, milliseconds = divmod(milliseconds, 3_600_000)
     minutes, milliseconds = divmod(milliseconds, 60_000)
     secs, milliseconds = divmod(milliseconds, 1000)
@@ -28,12 +30,18 @@ def cues(text: str, duration: float) -> list[tuple[float, float, str]]:
     return output
 
 
-def write_subtitles(text: str, duration: float, srt_path: Path, vtt_path: Path) -> None:
-    items = cues(text, duration)
+def write_subtitles(
+    text: str, duration: float, srt_path: Path, vtt_path: Path,
+    segments: list[TranscriptSegment] | None = None,
+) -> None:
+    manual = bool(segments)
+    items = ([(item.start, item.end, item.text) for item in segments]
+             if manual else cues(text, duration))
     srt_lines: list[str] = []
     vtt_lines = ["WEBVTT", ""]
     for index, (start, end, sentence) in enumerate(items, 1):
-        srt_lines.extend([str(index), f"{_timestamp(start)} --> {_timestamp(end)}", sentence, ""])
-        vtt_lines.extend([f"{_timestamp(start, True)} --> {_timestamp(end, True)}", sentence, ""])
+        rendered = subtitle_text(sentence) if manual else sentence
+        srt_lines.extend([str(index), f"{_timestamp(start)} --> {_timestamp(end)}", rendered, ""])
+        vtt_lines.extend([f"{_timestamp(start, True)} --> {_timestamp(end, True)}", rendered, ""])
     srt_path.write_text("\n".join(srt_lines), encoding="utf-8")
     vtt_path.write_text("\n".join(vtt_lines), encoding="utf-8")

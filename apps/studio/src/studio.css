@@ -94,12 +94,20 @@ dt { color: var(--muted); } dd { margin: 0; min-width: 0; }
 .scene-claims ul { padding-left: 1rem; }
 .scene-claims li { margin-bottom: 1rem; overflow-wrap: anywhere; }
 .claim-form fieldset { display: block !important; margin-top: 1rem; }
+.transcript-editor { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.transcript-editor ol { display: block; overflow-wrap: anywhere; }
+.transcript-editor li { max-width: none; margin-bottom: .6rem; }
+.caption-row { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 7px; }
+.caption-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.transcript-editor select { min-width: 0; }
 .three-preview { margin: 1rem 0; padding: .8rem; border: 1px solid var(--line); border-radius: 8px; }
 .three-canvas canvas { display: block; width: 100%; aspect-ratio: 16 / 9; height: auto; }
 .three-canvas.portrait { max-width: 360px; margin: auto; }
 .three-canvas.portrait canvas { aspect-ratio: 9 / 16; }
 .project-refresh { margin-top: .7rem; }
 .media-result { margin-top: 1rem; display: grid; gap: 1rem; justify-items: start; }
+.verified-video { width: 100%; }
+.verified-video > button { margin-top: .7rem; }
 .media-result video, .media-result img { width: 100%; max-width: 960px; max-height: 650px; background: #000; object-fit: contain; }
 progress { width: 100%; height: 12px; accent-color: var(--accent); }
 .receipt-list { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }

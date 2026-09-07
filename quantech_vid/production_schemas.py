@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .claims import Claim
 from .scene3d import Visual3DConfig
+from .transcripts import TranscriptSegment, validate_track_segments
 
 
 class ClosedModel(BaseModel):
@@ -69,6 +70,9 @@ class TrackV2(ClosedModel):
     title: str = Field(min_length=1, max_length=200)
     narration: str = Field(min_length=1, max_length=8000)
     voice: str | None = Field(default=None, max_length=120)
+    segments: list[TranscriptSegment] = Field(
+        default_factory=list, max_length=128, exclude_if=lambda value: not value
+    )
 
 
 class OutputProfileV2(ClosedModel):
@@ -109,6 +113,9 @@ class SceneProjectV2(ClosedModel):
             raise ValueError("each scene needs a title for every declared locale")
         if len({profile.name for profile in self.output_profiles}) != len(self.output_profiles):
             raise ValueError("output profiles must be unique")
+        duration = sum(scene.duration for scene in self.scenes)
+        for track in self.tracks:
+            validate_track_segments(track.segments, duration=duration, source_ids=set(self.sources))
         return self
 
 

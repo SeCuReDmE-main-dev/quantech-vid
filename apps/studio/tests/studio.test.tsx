@@ -62,6 +62,34 @@ it('shows unavailable provider capabilities instead of presenting fake login but
   expect(screen.getAllByText(/Connector not qualified/)).toHaveLength(3);
   expect(screen.queryByRole('button', { name: /Connect ChatGPT/ })).toBeNull();
 });
+
+it('blocks execution during a caption draft, then invalidates approval on apply and omits emptied segments', async () => {
+  const api = fixtureAPI(); vi.mocked(api.sample).mockResolvedValue({ ...source, id: `src_${'a'.repeat(32)}` });
+  render(<Studio api={api} />); await pair();
+  fireEvent.click(screen.getByRole('button', { name: 'Create a synthetic sample' }));
+  await screen.findByDisplayValue('My first verified film');
+  fireEvent.click(screen.getByRole('button', { name: 'Save project' })); await screen.findByText(/Saved revision 1/);
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare render plan' })); await screen.findByText('Review this exact plan');
+  fireEvent.click(screen.getByRole('checkbox')); fireEvent.click(screen.getByRole('button', { name: 'Approve this plan' }));
+  await screen.findByText(/No render has started/);
+  fireEvent.click(screen.getByRole('button', { name: 'Edit manual captions' }));
+  for (const name of ['Run approved render', 'Prepare render plan', 'Save project', 'Add a statement',
+    'Select scene 1: From an idea to a visible result'])
+    expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Run approved render' })); expect(api.run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Add timed caption' }));
+  fireEvent.change(screen.getByLabelText('Caption text 1'), { target: { value: 'A manually timed caption.' } });
+  fireEvent.change(screen.getByLabelText('Source location 1'), { target: { value: 'paragraph 1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply manual captions' }));
+  expect(screen.queryByText('Review this exact plan')).toBeNull();
+  expect(screen.getByText('1 manually timed segments')).toBeTruthy();
+  expect(api.run).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit manual captions' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove caption 1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply manual captions' }));
+  expect(screen.getByText(/No manual segments/)).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'Save project' }) as HTMLButtonElement).disabled).toBe(true);
+});
 it('does not upload a file merely because it was selected', async () => {
   const api = fixtureAPI(); vi.spyOn(api, 'upload'); render(<Studio api={api} />); await pair();
   const file = new File(['synthetic source'], 'fixture.txt', { type: 'text/plain' });

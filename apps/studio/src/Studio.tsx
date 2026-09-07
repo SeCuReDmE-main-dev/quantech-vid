@@ -7,6 +7,8 @@ import { applyProposal } from './tools/proposals';
 import type { ToolDefinition, ToolName } from './tools/contracts';
 import { SceneClaims } from './SceneClaims';
 import { Scene3DLabels } from './Scene3DLabels';
+import { TranscriptEditor } from './TranscriptEditor';
+import { VerifiedVideoPreview } from './VerifiedVideoPreview';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -45,6 +47,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
   const [toolExecuting, setToolExecuting] = useState(false);
   const [claimEditing, setClaimEditing] = useState(false);
   const [visualEditing, setVisualEditing] = useState(false);
+  const [transcriptEditing, setTranscriptEditing] = useState(false);
   const [uncertainTool, setUncertainTool] = useState<{ tool: ToolName; argumentsValue: Record<string, unknown> } | null>(null);
   const bridge = useRef<WebMCPBridge | null>(null);
   const busyRef = useRef(false);
@@ -53,10 +56,11 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
   const selectedScene = document?.scenes[Math.min(sceneIndex, document.scenes.length - 1)];
   const dirty = !!document && (!revision || JSON.stringify(document) !== JSON.stringify(revision.document));
   const activeJob = job?.status === 'queued' || job?.status === 'running';
+  const captionReceipt = job?.receipts.find(receipt => receipt.role === 'captions-vtt' && receipt.media_type === 'text/vtt' && receipt.size <= 1_000_000);
   const workLocked = !!busy || !!activeJob || uncertain || toolExecuting;
-  const frozen = workLocked || claimEditing || visualEditing;
+  const frozen = workLocked || claimEditing || visualEditing || transcriptEditing;
   const toolSnapshot = useRef({ projectId: revision?.project_id ?? null, revision: revision?.revision ?? null, dirty, busy: false });
-  toolSnapshot.current = { projectId: revision?.project_id ?? null, revision: revision?.revision ?? null, dirty: dirty || claimEditing || visualEditing,
+  toolSnapshot.current = { projectId: revision?.project_id ?? null, revision: revision?.revision ?? null, dirty: dirty || claimEditing || visualEditing || transcriptEditing,
     busy: busyRef.current || uncertain };
 
   useEffect(() => { let live = true; api.health().then(value => { if (live) setHealth(value); })
@@ -269,14 +273,14 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
             <p className="fine">Procedural, synthetic geometry. Source admission and uncertainty labels still apply. Importing external models is not enabled.</p></>}
         </fieldset> : <div className="empty">The selected scene’s text, duration and framing will appear here.</div>}
         {document && selectedScene?.visual_3d && <Scene3DLabels key={selectedScene.id} visual={selectedScene.visual_3d}
-          disabled={workLocked || claimEditing} onEditingChange={setVisualEditing} onChange={visual => {
+          disabled={workLocked || claimEditing || transcriptEditing} onEditingChange={setVisualEditing} onChange={visual => {
             if (history && !workLocked) {
               setHistory(edit(history, { ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, visual_3d: visual } : s) }));
               invalidatePlan();
             }
           }} />}
         {document && selectedScene && <SceneClaims key={selectedScene.id} claims={selectedScene.claims ?? []} sourceIds={document.sources}
-          disabled={workLocked || visualEditing} onEditingChange={setClaimEditing} onChange={claims => {
+          disabled={workLocked || visualEditing || transcriptEditing} onEditingChange={setClaimEditing} onChange={claims => {
             if (history && !workLocked) {
               const next = { ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, claims } : s) };
               setHistory(edit(history, next)); invalidatePlan();
@@ -290,6 +294,18 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
         </li>)}</ol>
         {!document && <div className="empty">Scene order and timing become visible after you admit a source.</div>}
         {document && <label>Narration / caption text<textarea rows={3} maxLength={8000} value={document.tracks.find(t => t.locale === 'en')?.narration ?? ''} disabled={frozen} onChange={e => change({ ...document, tracks: document.tracks.map(t => t.locale === 'en' ? { ...t, narration: e.target.value } : t) })} /><span className="fine">Stored for editing. This qualified render is silent: no cloud voice request is made.</span></label>}
+        {document && <TranscriptEditor key={document.slug} segments={document.tracks.find(t => t.locale === 'en')?.segments ?? []}
+          duration={document.scenes.reduce((sum, scene) => sum + scene.duration, 0)} sourceIds={document.sources}
+          disabled={workLocked || claimEditing || visualEditing} onEditingChange={setTranscriptEditing} onChange={segments => {
+            if (history && !workLocked) {
+              setHistory(edit(history, { ...document, tracks: document.tracks.map(track => {
+                if (track.locale !== 'en') return track;
+                const { segments: _old, ...base } = track;
+                return segments.length ? { ...base, segments } : base;
+              }) }));
+              invalidatePlan();
+            }
+          }} />}
       </section>
     </main>
     <section className="production panel" aria-labelledby="production-title"><div><p className="eyebrow">04 · PRODUCTION CONTROL</p><h2 id="production-title">Prepare. Review. Then render.</h2><p>Saving a project never starts a job. Changing its revision invalidates the previous plan.</p></div>
@@ -299,7 +315,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
         <dl>{Object.entries(plan.limits).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{value.toLocaleString()}</dd></div>)}</dl>
         <label className="check"><input type="checkbox" checked={reviewed} disabled={frozen || approved || !!job} onChange={e => setReviewed(e.target.checked)} />I have reviewed the sources, scene order, output and local compute request.</label>
         <div className="toolbar"><button disabled={!reviewed || approved || frozen || !!job} onClick={() => void perform('Recording your approval', async () => { await api.approve(plan.id, plan.project_id, plan.revision); setApproved(true); setMessage('This exact plan is approved for 15 minutes. No render has started.'); })}>Approve this plan</button>
-          <button className="primary" disabled={(!approved && !uncertain) || !!busy || !!job || !!uncertainTool || toolExecuting} onClick={() => void perform(uncertain ? 'Checking the same render request' : 'Starting approved render', run)}>{uncertain ? 'Retry the same request safely' : 'Run approved render'}</button></div>
+          <button className="primary" disabled={(!approved && !uncertain) || !!busy || !!job || !!uncertainTool || toolExecuting || claimEditing || visualEditing || transcriptEditing} onClick={() => void perform(uncertain ? 'Checking the same render request' : 'Starting approved render', run)}>{uncertain ? 'Retry the same request safely' : 'Run approved render'}</button></div>
         {uncertain && <p className="warning">The outcome of the request is unknown. The retry keeps the same plan and idempotency key; do not create a second plan.</p>}
       </div>}
       {job && <div className="job"><div className="section-head"><h3>{verifiedCompletion(job) ? 'Render completed — receipts available' : `Render ${job.status}`}</h3><span>{job.progress}%</span></div>
@@ -312,7 +328,8 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
             setMedia({ url, type: receipt.media_type, name: receipt.name }); setMessage('Artifact bytes match the recorded SHA-256. Inspect the content; this is not a factual certification.');
           })}>Inspect {receipt.role}</button></li>)}</ul>
         {media && <div className="media-result"><h3>Verified file: {media.name}</h3>
-          {media.type.startsWith('video/') && <video src={media.url} controls preload="metadata" aria-label="Generated video preview" />}
+          {media.type.startsWith('video/') && <VerifiedVideoPreview key={media.url} url={media.url}
+            loadCaptions={captionReceipt ? () => api.artifact(job.id, captionReceipt) : undefined} />}
           {media.type.startsWith('image/') && <img src={media.url} alt="Generated poster for the reviewed project" />}
           <a href={media.url} download={media.name}>Save this verified file</a><button onClick={() => setMedia(null)}>Close artifact</button>
         </div>}
