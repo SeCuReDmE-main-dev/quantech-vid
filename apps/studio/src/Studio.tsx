@@ -15,6 +15,7 @@ import { EngineStatus } from './EngineStatus';
 import { RevisionDiff } from './RevisionDiff';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { NarrationSelector } from './NarrationSelector';
+import { SyntheticAvatarStyle } from './SyntheticAvatarStyle';
 import type { NarrationMode } from './contracts';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
@@ -301,6 +302,11 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
               setHistory(edit(history, { ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, visual_3d: visual } : s) }));
               invalidatePlan();
             }
+          }} />}
+        {document && selectedScene?.visual_3d && <SyntheticAvatarStyle visual={selectedScene.visual_3d}
+          disabled={workLocked || claimEditing || transcriptEditing || visualEditing} onChange={visual => {
+            change({ ...document, scenes: document.scenes.map(scene =>
+              scene.id === selectedScene.id ? { ...scene, visual_3d: visual } : scene) });
           }} />}
         {document && selectedScene && <SceneClaims key={selectedScene.id} claims={selectedScene.claims ?? []} sourceIds={document.sources}
           disabled={workLocked || visualEditing || transcriptEditing} onEditingChange={setClaimEditing} onChange={claims => {
