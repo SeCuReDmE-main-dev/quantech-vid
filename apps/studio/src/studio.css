@@ -9,8 +9,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
 a { color: var(--accent); }
 :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
-.studio { --bg: #07111e; --panel: #0f1d2d; --raised: #17293b; --line: #355066; --text: #edf5fa; --muted: #b3c5d2; --accent: #68e4d5; --gold: #f0c66c; --on-accent: #092323; --hover: #213b4c; --danger: #ffadbb; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 1rem; color-scheme: dark; }
-.theme-light { --bg: #f1f5f8; --panel: #fff; --raised: #edf3f7; --line: #a2b4c1; --text: #142c40; --muted: #455c6d; --accent: #086b65; --on-accent: #fff; --gold: #916118; --hover: #d8eae9; --danger: #a4203a; color-scheme: light; }
+.studio { --bg: #07111e; --panel: #0f1d2d; --raised: #17293b; --line: #617c92; --text: #edf5fa; --muted: #b3c5d2; --accent: #68e4d5; --gold: #f0c66c; --on-accent: #092323; --hover: #213b4c; --danger: #ffadbb; background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 1rem; color-scheme: dark; }
+.theme-light { --bg: #f1f5f8; --panel: #fff; --raised: #edf3f7; --line: #6b8195; --text: #142c40; --muted: #455c6d; --accent: #086b65; --on-accent: #fff; --gold: #916118; --hover: #d8eae9; --danger: #a4203a; color-scheme: light; }
 .skip-link { position: absolute; top: -100px; left: 1rem; z-index: 10; padding: 1rem; background: var(--panel); }
 .skip-link:focus { top: 1rem; }
 h1, h2, h3, p { margin-top: 0; }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import io
 import os
@@ -321,6 +322,87 @@ def test_browser_upload_is_streamed_derived_and_bounded(api) -> None:
     malformed = client.post("/api/v2/sources/upload", headers={**upload_headers, "x-file-name": "bad%GG.png"},
                             content=buffer.getvalue())
     assert malformed.status_code == 422
+
+
+def test_markdown_upload_is_literal_byte_exact_utf8_and_bounded(api) -> None:
+    client, _, tmp_path = api
+    _, headers = pair(client)
+    base_headers = {
+        **headers,
+        "x-rights-basis": "owned",
+        "x-rights-reference": quote("déclaration opérateur"),
+        "x-source-origin": quote("sélecteur navigateur"),
+    }
+    markdown = (
+        "# Résumé\n\n<script>alert('inert')</script>\n"
+        "[lien externe](https://example.invalid/private)\n"
+        "![image distante](https://example.invalid/pixel.png)\n"
+    ).encode("utf-8")
+    response = client.post(
+        "/api/v2/sources/upload",
+        headers={**base_headers, "x-file-name": quote("leçon sûre.markdown")},
+        content=markdown,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["original"] == {
+        "name": "leçon sûre.markdown",
+        "media_type": "text/markdown",
+        "size": len(markdown),
+        "sha256": hashlib.sha256(markdown).hexdigest(),
+    }
+    assert body["derived"] is True and body["asset"]["media_type"] == "image/png"
+
+    originals = list((tmp_path / "runtime" / "source-originals").glob("*/original.markdown"))
+    assert len(originals) == 1 and originals[0].read_bytes() == markdown
+    derived = tmp_path / "runtime" / "admitted-assets" / f"{body['asset']['id']}.png"
+    with Image.open(derived) as image:
+        assert image.format == "PNG" and image.size == (1280, 720)
+
+    # The same literal bytes take the same preview path as plain text: Markdown is
+    # neither parsed nor allowed to resolve HTML, links, images, or URLs.
+    text_response = client.post(
+        "/api/v2/sources/upload",
+        headers={**base_headers, "x-file-name": "literal.txt"},
+        content=markdown,
+    )
+    assert text_response.status_code == 201
+    assert text_response.json()["original"]["media_type"] == "text/plain"
+    assert text_response.json()["asset"]["sha256"] == body["asset"]["sha256"]
+
+    invalid = client.post(
+        "/api/v2/sources/upload",
+        headers={**base_headers, "x-file-name": "invalid.md"},
+        content=b"\xff\xfe# invalid",
+    )
+    assert invalid.status_code == 422 and invalid.json()["error"]["code"] == "INVALID_UTF8_SOURCE"
+    oversized = client.post(
+        "/api/v2/sources/upload",
+        headers={**base_headers, "x-file-name": "large.md"},
+        content=("é" * 200_001).encode("utf-8"),
+    )
+    assert oversized.status_code == 413 and oversized.json()["error"]["code"] == "SOURCE_TOO_LARGE"
+    traversal = client.post(
+        "/api/v2/sources/upload",
+        headers={**base_headers, "x-file-name": quote("../escape.markdown", safe="")},
+        content=b"# inert",
+    )
+    assert traversal.status_code == 422
+
+
+def test_plain_text_upload_remains_strict_utf8(api) -> None:
+    client, _, _ = api
+    _, headers = pair(client)
+    upload_headers = {
+        **headers,
+        "x-file-name": "invalid.txt",
+        "x-rights-basis": "owned",
+        "x-rights-reference": "operator",
+        "x-source-origin": "browser",
+    }
+    response = client.post("/api/v2/sources/upload", headers=upload_headers, content=b"\xff")
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_UTF8_SOURCE"
 
 
 def test_v1_migration_is_by_copy_and_original_is_untouched(api) -> None:

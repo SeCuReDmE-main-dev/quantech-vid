@@ -56,8 +56,17 @@ The frontend suite exercises strict contracts, draft recovery, undo, admission i
 
 ## Still open
 
+The local Markdown/contrast follow-up passed 90 Python tests and 54 frontend
+tests plus the production build on Windows. Chrome admitted a synthetic Markdown
+fixture through the actual file chooser and explicit rights form. The original
+hash matched on disk. Palette regression tests read the real stylesheet and check
+normal text at 4.5:1 and relevant control boundaries/focus colors at 3:1. Chrome
+computed colors matched both tested themes. This is not a complete WCAG audit;
+disabled controls, native menus, image content and full keyboard/reader behavior
+require separate assessment.
+
 - Baseline CI run34067223916 passed four jobs on committed SHA `fc1c21a7ed8abf60542c5577fc2ee407327cc66f`; subsequent changes require their own CI run. Integrated scoped-token Chrome retest completed a second four-second MP4/WebM render; MP4 hash `e2a6a3591b0814e48c1b699fd69fe3d224a7aed12b79af0e1dd8c9ea07c6710a`, decoded at1280×720 without a media error.
-- Full keyboard journey, focus recovery, screen-reader checks, 200/400% zoom and measured contrast.
+- Full keyboard journey, focus recovery, screen-reader checks, 200/400% zoom and contrast beyond the measured theme/control palette.
 - Actual installation and journeys for the new companion in each browser claimed by the release.
 - Native browser-agent execution and external registry report/grade.
 - Pixel/layout qualification of all six 3D templates, external 3D imports, audio import/automatic transcription, avatars, authorized production connectors, vision inference and Scholarium integration.

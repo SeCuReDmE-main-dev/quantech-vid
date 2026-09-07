@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { VerifiedVideoPreview } from '../src/VerifiedVideoPreview';
 
@@ -9,14 +9,14 @@ it('loads captions only after a click and releases their Blob URL on close', asy
   const load = vi.fn().mockResolvedValue(new Blob(['WEBVTT\n'], {type:'text/vtt'}));
   const {container, unmount} = render(<VerifiedVideoPreview url="blob:verified-video" loadCaptions={load} />);
   expect(load).not.toHaveBeenCalled(); expect(container.querySelector('track')).toBeNull();
-  fireEvent.click(screen.getByRole('button', {name:'Load verified captions'}));
+  await act(async () => { fireEvent.click(screen.getByRole('button', {name:'Load verified captions'})); });
   await waitFor(() => expect(container.querySelector('track')?.getAttribute('src')).toBe('blob:verified-vtt'));
   expect(load).toHaveBeenCalledOnce();
   expect(container.querySelector('track')?.getAttribute('kind')).toBe('captions');
   const element = container.querySelector('track')!;
   Object.defineProperty(element, 'track', {value:{mode:'hidden',cues:[{},{}]}});
   fireEvent.load(element);
-  expect(screen.getByRole('status').textContent).toMatch(/Browser loaded 2 caption cues/);
+  await screen.findByText(/Browser loaded 2 caption cues/);
   expect(element.track.mode).toBe('showing');
   unmount(); expect(revoke).toHaveBeenCalledWith('blob:verified-vtt');
 });

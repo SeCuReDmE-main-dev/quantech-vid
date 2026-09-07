@@ -20,7 +20,9 @@ const messages: Record<string, string> = {
   BODY_TOO_LARGE: 'This input exceeds the local server limit. Use a smaller source.',
   ORIGIN_REJECTED: 'The studio address does not match the server’s configured origin.',
   HOST_REJECTED: 'The server rejected this host. Open the configured loopback studio address.',
-  UNSUPPORTED_SOURCE_MEDIA: 'Select a nonempty PNG, JPEG, WebP or UTF-8 text file under 50 MB.',
+  UNSUPPORTED_SOURCE_MEDIA: 'Select a nonempty PNG, JPEG, WebP or UTF-8 text/Markdown file under 50 MB.',
+  INVALID_UTF8_SOURCE: 'This text or Markdown file is not valid UTF-8. Save a UTF-8 copy and select that copy.',
+  SOURCE_TOO_LARGE: 'This text or Markdown exceeds the 200,000-character limit. Select a smaller, explicitly chosen excerpt.',
   ARTIFACT_INTEGRITY_FAILED: 'The file does not match its receipt. It was not opened. Inspect the existing job before retrying.',
   TOOL_CONTEXT_CHANGED: 'The selected project or revision changed. Save your work and inspect the current project first.',
   TOOL_SESSION_CLOSED: 'Agent tools are disconnected. Enable them again from the visible studio controls.',
@@ -122,7 +124,7 @@ export class StudioAPI {
   sources() { return this.request('/sources', z.object({ sources: z.array(sourceSchema) }), 'GET', undefined, this.operator()); }
   projects() { return this.request('/projects', z.object({ projects: z.array(projectSummarySchema) }), 'GET', undefined, this.operator()); }
   async upload(file: File, basis: 'owned' | 'licensed' | 'public-domain' | 'permission', reference: string) {
-    if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
+    if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt|md|markdown)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
     const human = this.operator();
     let response: Response;
     try { response = await this.fetcher('/api/v2/sources/upload', { method: 'POST', credentials: 'omit',

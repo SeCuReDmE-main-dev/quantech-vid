@@ -55,17 +55,30 @@ describe('same-origin studio client', () => {
     expect(() => new StudioAPI(mock as typeof fetch).run('plan', 'key')).toThrow();
     expect(mock).not.toHaveBeenCalled();
   });
-  it('encodes only selected file metadata, preserving non-ASCII text without putting credentials in the URL', async () => {
+  it.each(['école 100%.txt', 'école 100%.md', 'école 100%.markdown'])('uploads the explicitly selected %s without rewriting its bytes or leaking credentials in the URL', async filename => {
+    const mediaType = filename.endsWith('.txt') ? 'text/plain' : 'text/markdown';
     const mock = vi.fn().mockResolvedValueOnce(json(human)).mockResolvedValueOnce(json({ asset: source,
-      original: { name: 'école 100%.txt', size: 5, sha256: 'a'.repeat(64), media_type: 'text/plain' }, derived: true }));
+      original: { name: filename, size: 6, sha256: 'a'.repeat(64), media_type: mediaType }, derived: true }));
     const api = new StudioAPI(mock as typeof fetch); await api.pair('synthetic-code');
-    const file = new File(['école'], 'école 100%.txt', { type: 'text/plain' });
-    await api.upload(file, 'owned', 'Texte fictif — propriété de QA');
+    const file = new File(['école'], filename, { type: mediaType });
+    const result = await api.upload(file, 'owned', 'Texte fictif — propriété de QA');
+    expect(result.original.name).toBe(filename);
+    expect(result.original.media_type).toBe(mediaType);
     expect(mock.mock.calls[1][0]).toBe('/api/v2/sources/upload');
     const options = mock.mock.calls[1][1]; expect(options.body).toBe(file);
     expect(options.headers['X-File-Name']).toBe(encodeURIComponent(file.name));
     expect(options.headers['X-Rights-Reference']).toBe(encodeURIComponent('Texte fictif — propriété de QA'));
     expect(options.headers['X-CSRF-Token']).toBe(human.csrf_token);
+    expect(options.headers['Content-Type']).toBe(mediaType);
+    expect(options.credentials).toBe('omit');
+    expect(options.redirect).toBe('error');
+  });
+  it('does not send an HTML file disguised with a Markdown filename suffix or an empty Markdown', async () => {
+    const mock = vi.fn().mockResolvedValueOnce(json(human));
+    const api = new StudioAPI(mock as typeof fetch); await api.pair('synthetic-code');
+    for (const file of [new File(['<script>inert</script>'], 'source.md.html'), new File([], 'empty.md')])
+      await expect(api.upload(file, 'owned', 'Synthetic QA')).rejects.toMatchObject({ code: 'UNSUPPORTED_SOURCE_MEDIA' });
+    expect(mock).toHaveBeenCalledTimes(1);
   });
   it('deduplicates concurrent runner registration so approval and tools bind the same agent', async () => {
     const mock = vi.fn().mockResolvedValueOnce(json(human)).mockResolvedValueOnce(json(runner));

@@ -225,7 +225,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 ):
             raise ContractError("INVALID_UPLOAD_METADATA", 422)
         suffix = Path(filename).suffix.lower()
-        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".txt"}:
+        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".txt", ".md", ".markdown"}:
             raise ContractError("UNSUPPORTED_SOURCE_MEDIA", 422)
         upload_id = uuid4().hex
         staging = runtime.data_dir / "tmp" / f"upload-{upload_id}.part"
@@ -244,7 +244,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
             provenance = SourceProvenance(origin=origin, collected_by=principal["id"],
                 note=f"Browser-selected original SHA-256: {digest.hexdigest()}")
             rights = SourceRights(basis=basis, reference=reference)
-            if suffix == ".txt":
+            if suffix in {".txt", ".md", ".markdown"}:
                 try: text = original.read_text(encoding="utf-8")
                 except UnicodeDecodeError as exc: raise ContractError("INVALID_UTF8_SOURCE", 422) from exc
                 if len(text) > 200_000: raise ContractError("SOURCE_TOO_LARGE", 413)
@@ -254,7 +254,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 lines = textwrap.wrap(text.replace("\x00", ""), width=68)[:16]
                 draw.multiline_text((70, 70), "\n".join(lines) or "(empty text)", fill="white", font=font, spacing=12)
                 canvas.save(derived, format="PNG")
-                original_media_type = "text/plain"
+                original_media_type = "text/markdown" if suffix in {".md", ".markdown"} else "text/plain"
             else:
                 detected = validate_image(original); derived = original
                 original_media_type = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}[detected]

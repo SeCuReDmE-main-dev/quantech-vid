@@ -90,11 +90,11 @@ it('blocks execution during a caption draft, then invalidates approval on apply 
   expect(screen.getByText(/No manual segments/)).toBeTruthy();
   expect((screen.getByRole('button', { name: 'Save project' }) as HTMLButtonElement).disabled).toBe(true);
 });
-it('does not upload a file merely because it was selected', async () => {
+it.each(['fixture.txt', 'fixture.md', 'fixture.markdown'])('does not upload %s merely because it was selected', async filename => {
   const api = fixtureAPI(); vi.spyOn(api, 'upload'); render(<Studio api={api} />); await pair();
-  const file = new File(['synthetic source'], 'fixture.txt', { type: 'text/plain' });
+  const file = new File(['synthetic source'], filename, { type: 'text/plain' });
   fireEvent.change(screen.getByLabelText('Select a local file'), { target: { files: [file] } });
-  expect(screen.getByText(/fixture.txt/)).toBeTruthy();
+  expect(screen.getByText(new RegExp(filename.replaceAll('.', '\\.')))).toBeTruthy();
   expect(api.upload).not.toHaveBeenCalled();
   expect((screen.getByRole('button', { name: 'Admit this selected file' }) as HTMLButtonElement).disabled).toBe(true);
 });
