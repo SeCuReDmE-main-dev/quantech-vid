@@ -5,6 +5,15 @@ import { SourceMetadata } from '../src/SourceMetadata';
 import { source, plan } from './fixtures';
 
 afterEach(cleanup);
+it('labels a GLB derivative as static rather than editable or animated 3D', () => {
+  const asset = sourceSchema.parse({ ...source, provenance: { ...source.provenance, original: {
+    name: 'fixture.glb', sha256: 'b'.repeat(64), size: 1024,
+    media_type: 'model/gltf-binary', transformation: 'glb-four-view-png-v1',
+  } } });
+  render(<SourceMetadata source={asset}/>);
+  expect(screen.getByText(/Static PNG, not an animated or editable imported 3D scene/)).toBeTruthy();
+  expect(screen.getByText(/declaration, not a verified license/)).toBeTruthy();
+});
 const original = { name: '<script>.md', sha256: 'b'.repeat(64), size: 460,
   media_type: 'text/markdown' as const, transformation: 'literal-text-preview-v1' as const };
 

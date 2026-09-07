@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import textwrap
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -20,10 +21,13 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from .config import Settings
 from .local_voice import LocalVoiceError, LocalVoicePilot, LocalVoiceResources
+from .model3d import Model3DError
+from .model3d_poster import Model3DPosterError, render_model3d_poster
 from .engines import CodexEngineAdapter, CopilotEngineAdapter, AntigravityEngineAdapter
 from .engines.models import EngineConnection
 from .production_schemas import (AdmitSourceRequest, AuthorizePlanRequest, CreateProjectRequest,
@@ -209,7 +213,11 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
             opened.convert("RGB").save(target, format="PNG", optimize=True)
         asset = SourceAsset(id=asset_id, sha256=file_sha256(target), media_type="image/png", size=target.stat().st_size,
             provenance=provenance, rights=rights, allowed_operations=sorted(set(operations)), created_at=now_iso())
-        return store.add_source(principal, asset, target, original_path=original_path)
+        try:
+            return store.add_source(principal, asset, target, original_path=original_path)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
 
     @application.get("/api/v1/health")
     @application.get("/api/v2/health")
@@ -259,6 +267,23 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         provenance = SourceProvenance.model_validate(payload.provenance.model_dump(mode="json"))
         return admit_derived_image(source, principal, provenance, payload.rights, payload.allowed_operations)
 
+    model_preview_lock = Lock()
+
+    def prepare_model_preview(original: Path, digest: str, output: Path) -> str:
+        # One bounded preview at a time; no queued heavy work from repeated clicks.
+        if not model_preview_lock.acquire(blocking=False):
+            raise ContractError("MODEL3D_PREVIEW_BUSY", 409)
+        try:
+            proof = render_model3d_poster(original.read_bytes(), digest, output, lambda: False,
+                                          deadline_seconds=30)
+            return proof.renderer_binding
+        except (Model3DError, Model3DPosterError) as exc:
+            raise ContractError(exc.code, 422) from None
+        except InterruptedError:
+            raise ContractError("MODEL3D_PREVIEW_CANCELLED", 409) from None
+        finally:
+            model_preview_lock.release()
+
     @application.post("/api/v2/sources/upload", status_code=201)
     async def upload_source(request: Request, principal: dict = Depends(human)) -> dict:
         filename = decoded_header(request.headers.get("x-file-name", ""), 180)
@@ -270,7 +295,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 ):
             raise ContractError("INVALID_UPLOAD_METADATA", 422)
         suffix = Path(filename).suffix.lower()
-        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".txt", ".md", ".markdown"}:
+        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".txt", ".md", ".markdown", ".glb"}:
             raise ContractError("UNSUPPORTED_SOURCE_MEDIA", 422)
         upload_id = uuid4().hex
         staging = runtime.data_dir / "tmp" / f"upload-{upload_id}.part"
@@ -278,16 +303,27 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         staging.parent.mkdir(parents=True, exist_ok=True); original.parent.mkdir(parents=True, exist_ok=True)
         size, digest, admitted = 0, hashlib.sha256(), False
         derived: Path | None = None
+        model_job = None
+        derivation_note = None
         try:
             with staging.open("wb") as stream:
                 async for chunk in request.stream():
                     size += len(chunk)
-                    if size > config.max_source_bytes: raise ContractError("SOURCE_TOO_LARGE", 413)
+                    if size > min(config.max_source_bytes, 20_000_000 if suffix == ".glb" else config.max_source_bytes):
+                        raise ContractError("SOURCE_TOO_LARGE", 413)
                     digest.update(chunk); stream.write(chunk)
             if size == 0: raise ContractError("EMPTY_SOURCE", 422)
             shutil.move(staging, original)
             rights = SourceRights(basis=basis, reference=reference)
-            if suffix in {".txt", ".md", ".markdown"}:
+            if suffix == ".glb":
+                model_job = tempfile.TemporaryDirectory(prefix="model-preview-", dir=staging.parent)
+                preview_dir = Path(model_job.name).resolve()
+                binding = await run_in_threadpool(prepare_model_preview, original, digest.hexdigest(), preview_dir)
+                derived = preview_dir / "model3d-poster.png"
+                original_media_type = "model/gltf-binary"
+                transformation = "glb-four-view-png-v1"
+                derivation_note = f"Static four-view GLB derivative; renderer {binding}. No editable model or avatar permission implied."
+            elif suffix in {".txt", ".md", ".markdown"}:
                 try: text = original.read_text(encoding="utf-8")
                 except UnicodeDecodeError as exc: raise ContractError("INVALID_UTF8_SOURCE", 422) from exc
                 if len(text) > 200_000: raise ContractError("SOURCE_TOO_LARGE", 413)
@@ -308,7 +344,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 sha256=digest.hexdigest(), transformation=transformation,
             )
             provenance = SourceProvenance(
-                origin=origin, collected_by=principal["id"], original=original_descriptor,
+                origin=origin, collected_by=principal["id"], original=original_descriptor, note=derivation_note,
             )
             asset = admit_derived_image(
                 derived, principal, provenance, rights, ["render", "analyze"], original_path=original,
@@ -320,6 +356,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         finally:
             staging.unlink(missing_ok=True)
             if derived is not None and derived != original: derived.unlink(missing_ok=True)
+            if model_job is not None: model_job.cleanup()
             if not admitted: shutil.rmtree(original.parent, ignore_errors=True)
 
     @application.post("/api/v2/sources/sample", response_model=SourceAsset, status_code=201)

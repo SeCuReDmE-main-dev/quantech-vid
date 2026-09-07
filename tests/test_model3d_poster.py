@@ -126,6 +126,15 @@ def test_invalid_glb_is_rejected_before_any_output(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
+def test_worker_preserves_venv_python_entry_path(tmp_path, monkeypatch):
+    import quantech_vid.model3d_poster as module
+    entry, resolved = tmp_path / "venv-python", tmp_path / "base-python"
+    entry.touch(); resolved.touch()
+    monkeypatch.setattr(module.sys, "executable", str(entry))
+    monkeypatch.setattr(Path, "resolve", lambda self, **kwargs: resolved if self == entry else self)
+    assert module._python_executable() == entry
+
+
 def test_nonresponsive_worker_is_killed_on_timeout_and_cancel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

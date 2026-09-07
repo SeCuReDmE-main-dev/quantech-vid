@@ -390,6 +390,64 @@ def test_browser_upload_is_streamed_derived_and_bounded(api) -> None:
     assert malformed.status_code == 422
 
 
+def test_plain_glb_upload_preserves_original_and_never_approves_production(api) -> None:
+    from test_model3d_poster import _valid
+    client, app, root = api
+    _, headers = pair(client)
+    content = _valid()
+    request_headers = {**headers, "x-file-name": "synthetic-triangle.glb", "x-rights-basis": "owned",
+                       "x-rights-reference": "Original synthetic test geometry"}
+    result = client.post("/api/v2/sources/upload", headers=request_headers, content=content)
+    assert result.status_code == 201, result.text
+    asset = result.json()["asset"]
+    assert asset["media_type"] == "image/png"
+    descriptor = asset["provenance"]["original"]
+    assert descriptor["media_type"] == "model/gltf-binary"
+    assert descriptor["transformation"] == "glb-four-view-png-v1"
+    assert descriptor["sha256"] == hashlib.sha256(content).hexdigest()
+    assert "three@" in asset["provenance"]["note"]
+    assert str(root) not in result.text
+    original = next((root / "runtime" / "source-originals").glob("*/original.glb"))
+    assert original.read_bytes() == content
+    preview = client.get(f"/api/v2/sources/{asset['id']}/preview", headers=headers)
+    assert preview.status_code == 200
+    with Image.open(io.BytesIO(preview.content)) as image:
+        assert image.format == "PNG" and image.size == (1024, 1024)
+    assert not list((root / "runtime" / "tmp").glob("model-preview-*"))
+    with app.state.production_store._connect() as db:
+        for table in ("projects", "render_plans", "production_grants", "production_jobs"):
+            assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+
+def test_glb_upload_rejects_bad_geometry_and_missing_rights_without_sources(api) -> None:
+    client, _, root = api
+    _, headers = pair(client)
+    request_headers = {**headers, "x-file-name": "bad.glb", "x-rights-basis": "owned",
+                       "x-rights-reference": "Synthetic fixture"}
+    rejected = client.post("/api/v2/sources/upload", headers=request_headers, content=b"not a GLB")
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"].startswith("MODEL3D_")
+    assert str(root) not in rejected.text
+    assert client.get("/api/v2/sources", headers=headers).json()["sources"] == []
+    assert not list((root / "runtime" / "source-originals").glob("*/original.glb"))
+    assert not list((root / "runtime" / "tmp").glob("model-preview-*"))
+    request_headers.pop("x-rights-reference")
+    assert client.post("/api/v2/sources/upload", headers=request_headers, content=b"x").status_code == 422
+
+
+def test_agent_cannot_admit_glb_original(api, monkeypatch) -> None:
+    client, _, _ = api
+    _, headers = pair(client)
+    project_id, _, _ = setup_project(client, headers)
+    _, agent_headers = create_agent(client, headers, project_id)
+    def forbidden(*args, **kwargs):
+        pytest.fail("No model processing before human authorization")
+    monkeypatch.setattr("quantech_vid.api.render_model3d_poster", forbidden)
+    response = client.post("/api/v2/sources/upload", headers={**agent_headers,
+        "x-file-name": "fixture.glb", "x-rights-basis": "owned", "x-rights-reference": "fixture"}, content=b"x")
+    assert response.status_code == 403
+
+
 def test_source_preview_serves_only_verified_admitted_derivative(api) -> None:
     client, app, tmp_path = api
     _, headers = pair(client)

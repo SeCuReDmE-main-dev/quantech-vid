@@ -127,8 +127,10 @@ def _worker_script() -> Path:
 
 def _python_executable() -> Path:
     try:
-        path = Path(sys.executable).resolve(strict=True)
-        if not path.is_file():
+        # Preserve the venv entry path: resolving its symlink before launching
+        # would silently select the base interpreter and lose installed packages.
+        path = Path(os.path.abspath(sys.executable))
+        if not path.resolve(strict=True).is_file():
             raise OSError
         return path
     except (OSError, RuntimeError, ValueError):

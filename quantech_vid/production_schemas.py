@@ -26,8 +26,8 @@ class OriginalSourceDescriptor(ClosedModel):
     name: str = Field(min_length=1, max_length=180)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     size: int = Field(ge=1, le=50_000_000)
-    media_type: Literal["image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown"]
-    transformation: Literal["literal-text-preview-v1", "rgb-png-v1"]
+    media_type: Literal["image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown", "model/gltf-binary"]
+    transformation: Literal["literal-text-preview-v1", "rgb-png-v1", "glb-four-view-png-v1"]
 
     @field_validator("name")
     @classmethod

@@ -12,6 +12,18 @@ const runner = { agent_id: 'agent', actor_type: 'agent', client_token: 'test-age
 const projectId = `prj_${'a'.repeat(32)}`;
 
 describe('same-origin studio client', () => {
+  it('uploads GLB only after explicit admission and bounds its size before network access', async () => {
+    const mock = vi.fn().mockResolvedValueOnce(json(human)).mockResolvedValueOnce(json({ asset: source,
+      original: { name: 'fixture.glb', size: 4, sha256: 'a'.repeat(64), media_type: 'model/gltf-binary' }, derived: true }));
+    const api = new StudioAPI(mock as typeof fetch); await api.pair('synthetic-code');
+    const file = new File(['glTF'], 'fixture.glb', { type: 'model/gltf-binary' });
+    await api.upload(file, 'owned', 'Synthetic geometry');
+    expect(mock.mock.calls[1][1].body).toBe(file);
+    const tooLarge = new File(['x'], 'large.glb');
+    Object.defineProperty(tooLarge, 'size', { value: 20_000_001 });
+    await expect(api.upload(tooLarge, 'owned', 'fixture')).rejects.toMatchObject({ code: 'SOURCE_TOO_LARGE' });
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
   it('keeps silent default and gives only explicit CPU planning a bounded resource-check deadline', async () => {
     const timer = vi.spyOn(AbortSignal, 'timeout');
     const mock = vi.fn().mockResolvedValueOnce(json(human)).mockImplementation(async () => json(plan));

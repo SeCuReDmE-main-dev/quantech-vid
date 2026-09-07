@@ -181,7 +181,8 @@ export class StudioAPI {
   }
   projects() { return this.request('/projects', z.object({ projects: z.array(projectSummarySchema) }), 'GET', undefined, this.operator()); }
   async upload(file: File, basis: 'owned' | 'licensed' | 'public-domain' | 'permission', reference: string) {
-    if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt|md|markdown)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
+    if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt|md|markdown|glb)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
+    if (/\.glb$/i.test(file.name) && file.size > 20_000_000) throw new StudioError('SOURCE_TOO_LARGE');
     const human = this.operator();
     let response: Response;
     try { response = await this.fetcher('/api/v2/sources/upload', { method: 'POST', credentials: 'omit',

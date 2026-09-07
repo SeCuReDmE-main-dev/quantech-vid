@@ -1,7 +1,8 @@
 # Offline GLB poster renderer
 
-Status: renderer-only preparation. This module is not connected to source
-admission, the API, the studio, render plans, or avatar workflows.
+This module provides the bounded renderer used by explicit
+[GLB source admission](GLB_SOURCE_ADMISSION.md). It produces a static derivative;
+it does not implement editable imported scenes or avatar workflows.
 
 ## Contract
 
@@ -103,9 +104,9 @@ never include a local path or worker exception string.
 
 ## Remaining work
 
-Integration still needs actor-scoped rights, admitted-byte retrieval, human
-approval, source/render-plan hash binding, derivative registration, status/error
-mapping, and browser-visible QA. Images need a separately qualified in-memory
+Source admission supplies actor-scoped rights declarations, original retention,
+derivative registration and plan hash binding. Production approval remains
+separate. Images need a separately qualified in-memory
 blob-resource design before they can be enabled. VRM requires its own extension,
 humanoid, licence, consent, revocation, and consumer work and is not supported by
 this poster renderer.

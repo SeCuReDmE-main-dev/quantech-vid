@@ -22,6 +22,7 @@ from .production_schemas import (
 )
 from .local_voice import (LocalVoiceError, LocalVoicePilot, MAX_TEXT_CHARS,
                           PILOT_LANGUAGE, PILOT_VOICE)
+from .store_migrations import allow_glb_originals
 from .scene3d import (MAX_SCENE3D_FRAME_BYTES, MAX_SCENE3D_FRAMES, Scene3DUnavailable,
                       runtime_binding)
 
@@ -125,7 +126,7 @@ class ProductionStore:
                     size INTEGER NOT NULL,
                     media_type TEXT NOT NULL,
                     transformation TEXT NOT NULL CHECK(
-                        transformation IN ('literal-text-preview-v1','rgb-png-v1')
+                        transformation IN ('literal-text-preview-v1','rgb-png-v1','glb-four-view-png-v1')
                     ),
                     FOREIGN KEY(source_id) REFERENCES source_assets(id) ON DELETE RESTRICT
                 );
@@ -162,6 +163,7 @@ class ProductionStore:
                 );
                 """
             )
+            allow_glb_originals(db, self.path)
             columns = {item[1] for item in db.execute("PRAGMA table_info(security_state)").fetchall()}
             for name, declaration in (("pairing_expires_at", "TEXT"), ("pairing_failed_attempts", "INTEGER NOT NULL DEFAULT 0")):
                 if name not in columns:
