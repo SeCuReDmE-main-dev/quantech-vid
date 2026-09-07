@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -16,7 +17,7 @@ from uuid import uuid4
 import imageio_ffmpeg
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
@@ -305,6 +306,35 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
     @application.get("/api/v2/sources")
     def list_sources(principal: dict = Depends(actor)) -> dict:
         return {"sources": [item.model_dump(mode="json") for item in store.list_sources(principal)]}
+
+    @application.get("/api/v2/sources/{source_id}/preview")
+    def source_preview(source_id: str, principal: dict = Depends(actor)) -> Response:
+        if re.fullmatch(r"src_[0-9a-f]{32}", source_id) is None:
+            raise ContractError("SOURCE_NOT_FOUND", 404)
+        payload, media_type = store.source_preview(principal, source_id)
+        expected_format = {
+            "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP",
+        }[media_type]
+        try:
+            with Image.open(io.BytesIO(payload)) as image:
+                detected_format = image.format
+                if image.width * image.height > 16_000_000:
+                    raise ContractError("SOURCE_PREVIEW_TOO_LARGE", 413)
+                image.verify()
+            # Header verification alone does not decode JPEG pixel data.
+            with Image.open(io.BytesIO(payload)) as decoded:
+                decoded.load()
+        except ContractError:
+            raise
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+            raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409) from exc
+        if detected_format != expected_format:
+            raise ContractError("SOURCE_PREVIEW_UNSUPPORTED_MEDIA", 415)
+        return Response(content=payload, media_type=media_type, headers={
+            "Cache-Control": "no-store",
+            "Content-Length": str(len(payload)),
+            "X-Content-Type-Options": "nosniff",
+        })
 
     @application.get("/api/v2/tools/catalog")
     def tools_catalog(principal: dict = Depends(agent)) -> dict:

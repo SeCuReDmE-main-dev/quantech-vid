@@ -10,6 +10,7 @@ import { Scene3DLabels } from './Scene3DLabels';
 import { TranscriptEditor } from './TranscriptEditor';
 import { VerifiedVideoPreview } from './VerifiedVideoPreview';
 import { SourceMetadata } from './SourceMetadata';
+import { SourcePreview } from './SourcePreview';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -55,6 +56,9 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
   const requestKeys = useRef(new Map<string, string>());
   const document = history?.present;
   const selectedScene = document?.scenes[Math.min(sceneIndex, document.scenes.length - 1)];
+  const selectedSource = sources.find(source => source.id === selectedScene?.source_asset_id);
+  const previewContext = JSON.stringify([document, revision?.project_id, revision?.revision, profile, sources, paired]);
+  useEffect(() => { api.clearPreviews(); }, [api, previewContext]);
   const dirty = !!document && (!revision || JSON.stringify(document) !== JSON.stringify(revision.document));
   const activeJob = job?.status === 'queued' || job?.status === 'running';
   const captionReceipt = job?.receipts.find(receipt => receipt.role === 'captions-vtt' && receipt.media_type === 'text/vtt' && receipt.size <= 1_000_000);
@@ -238,6 +242,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
           {selectedScene?.claims?.some(c => ['hypothesis', 'disputed', 'suspended'].includes(c.status)) && <p className="warning">This scene contains unresolved statements. Their status and sources must remain visible in the export.</p>}
           <small>{selectedScene ? `Scene ${sceneIndex + 1} · ${selectedScene.duration}s` : 'No generation or rendering has started'}</small>
         </div><p className="fine">This text storyboard previews structure, not the final media. The generated video and QA report are checked separately.</p>
+        {paired && selectedSource && <SourcePreview key={`${previewContext}:${selectedSource.id}`} source={selectedSource} api={api} disabled={frozen} />}
         {selectedScene?.visual_3d && <Suspense fallback={<p>Loading the local 3D module…</p>}><Scene3DPreview
           visual={selectedScene.visual_3d} title={selectedScene.title.en} duration={selectedScene.duration} portrait={profile === 'portrait'} /></Suspense>}
         <div className="toolbar"><button disabled={!history?.past.length || frozen} onClick={() => { if (history) { setHistory(undo(history)); invalidatePlan(); } }}>Undo</button>

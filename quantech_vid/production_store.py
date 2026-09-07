@@ -23,6 +23,9 @@ from .scene3d import (MAX_SCENE3D_FRAME_BYTES, MAX_SCENE3D_FRAMES, Scene3DUnavai
                       runtime_binding)
 
 
+MAX_SOURCE_PREVIEW_BYTES = 10 * 1024 * 1024
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -371,6 +374,39 @@ class ProductionStore:
         if any(operation not in json.loads(row["operations_json"]) for row in rows if row):
             raise ContractError("SOURCE_OPERATION_FORBIDDEN", 403)
         return rows  # type: ignore[return-value]
+
+    def source_preview(self, actor: dict, source_id: str) -> tuple[bytes, str]:
+        """Return a verified admitted derivative, never an uploaded original."""
+        row = self.source_rows(actor, [source_id], operation="render")[0]
+        media_type = row["media_type"]
+        if media_type not in {"image/png", "image/jpeg", "image/webp"}:
+            raise ContractError("SOURCE_PREVIEW_UNSUPPORTED_MEDIA", 415)
+        try:
+            path = Path(row["internal_path"])
+            if path.is_symlink():
+                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+            resolved = path.resolve(strict=True)
+            admitted_root = (self.path.parent / "admitted-assets").resolve(strict=True)
+            if admitted_root not in resolved.parents or not resolved.is_file():
+                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+            expected_size = int(row["size"])
+            actual_size = resolved.stat().st_size
+            if expected_size > MAX_SOURCE_PREVIEW_BYTES or actual_size > MAX_SOURCE_PREVIEW_BYTES:
+                raise ContractError("SOURCE_PREVIEW_TOO_LARGE", 413)
+            if expected_size < 0 or actual_size != expected_size:
+                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+            with resolved.open("rb") as stream:
+                payload = stream.read(MAX_SOURCE_PREVIEW_BYTES + 1)
+            if len(payload) > MAX_SOURCE_PREVIEW_BYTES:
+                raise ContractError("SOURCE_PREVIEW_TOO_LARGE", 413)
+            if (len(payload) != expected_size
+                    or not hmac.compare_digest(hashlib.sha256(payload).hexdigest(), row["sha256"])):
+                raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409)
+            return payload, media_type
+        except ContractError:
+            raise
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise ContractError("SOURCE_PREVIEW_INTEGRITY_FAILED", 409) from exc
 
     def list_sources(self, actor: dict) -> list[SourceAsset]:
         with self._connect() as db:

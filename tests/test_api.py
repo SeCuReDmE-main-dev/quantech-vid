@@ -324,6 +324,89 @@ def test_browser_upload_is_streamed_derived_and_bounded(api) -> None:
     assert malformed.status_code == 422
 
 
+def test_source_preview_serves_only_verified_admitted_derivative(api) -> None:
+    client, app, tmp_path = api
+    _, headers = pair(client)
+    original_bytes = io.BytesIO()
+    Image.new("RGB", (80, 60), "red").save(original_bytes, format="JPEG")
+    upload = client.post("/api/v2/sources/upload", headers={
+        **headers, "x-file-name": "source.jpg", "x-rights-basis": "owned",
+        "x-rights-reference": "operator", "x-source-origin": "browser",
+    }, content=original_bytes.getvalue())
+    assert upload.status_code == 201, upload.text
+    asset = upload.json()["asset"]
+
+    response = client.get(f"/api/v2/sources/{asset['id']}/preview", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["content-length"] == str(len(response.content))
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+    assert hashlib.sha256(response.content).hexdigest() == asset["sha256"]
+    assert response.content != original_bytes.getvalue()
+    with Image.open(io.BytesIO(response.content)) as image:
+        assert image.format == "PNG" and image.size == (80, 60)
+    original_path = next((tmp_path / "runtime" / "source-originals").glob("*/original.jpg"))
+    assert original_path.read_bytes() == original_bytes.getvalue()
+    assert str(original_path) not in response.text
+    assert app.state.production_store.list_sources(
+        {"id": "teacher", "kind": "human", "owner_id": None})[0].id == asset["id"]
+
+
+def test_source_preview_enforces_auth_owner_agent_scope_and_render_operation(api) -> None:
+    client, app, _ = api
+    _, headers = pair(client)
+    project_id, _, source_id = setup_project(client, headers)
+    _, agent_headers = create_agent(client, headers, project_id, "preview-agent")
+
+    assert client.get(f"/api/v2/sources/{source_id}/preview", headers=agent_headers).status_code == 200
+    assert client.get(f"/api/v2/sources/{source_id}/preview", headers=BASE_HEADERS).status_code == 401
+    malformed = client.get("/api/v2/sources/not-an-opaque-id/preview", headers=headers)
+    assert malformed.status_code == 404 and malformed.json()["error"]["code"] == "SOURCE_NOT_FOUND"
+
+    other_code = app.state.production_store.issue_pairing_code()
+    other = client.post("/api/v2/pair", headers=BASE_HEADERS,
+        json={"operator_code": other_code, "actor_id": "preview-other"}).json()
+    other_headers = {**BASE_HEADERS, "authorization": f"Bearer {other['session_token']}"}
+    hidden = client.get(f"/api/v2/sources/{source_id}/preview", headers=other_headers)
+    assert hidden.status_code == 404 and hidden.json()["error"]["code"] == "SOURCE_NOT_FOUND"
+
+    _, other_source = setup_project(client, headers)[0::2]
+    scoped = client.get(f"/api/v2/sources/{other_source}/preview", headers=agent_headers)
+    assert scoped.status_code == 404 and scoped.json()["error"]["code"] == "SOURCE_NOT_FOUND"
+
+    with app.state.production_store._connect() as db:
+        db.execute("UPDATE source_assets SET operations_json='[\"analyze\"]' WHERE id=?", (source_id,))
+    forbidden = client.get(f"/api/v2/sources/{source_id}/preview", headers=headers)
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["code"] == "SOURCE_OPERATION_FORBIDDEN"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "status", "code"),
+    [
+        ("wrong-hash", 409, "SOURCE_PREVIEW_INTEGRITY_FAILED"),
+        ("oversize", 413, "SOURCE_PREVIEW_TOO_LARGE"),
+        ("non-raster", 415, "SOURCE_PREVIEW_UNSUPPORTED_MEDIA"),
+    ],
+)
+def test_source_preview_rejects_unverified_content(api, mutation: str, status: int, code: str) -> None:
+    client, app, tmp_path = api
+    _, headers = pair(client)
+    _, _, source_id = setup_project(client, headers)
+    with app.state.production_store._connect() as db:
+        if mutation == "wrong-hash":
+            db.execute("UPDATE source_assets SET sha256=? WHERE id=?", ("0" * 64, source_id))
+        elif mutation == "oversize":
+            db.execute("UPDATE source_assets SET size=? WHERE id=?", (10 * 1024 * 1024 + 1, source_id))
+        else:
+            db.execute("UPDATE source_assets SET media_type='text/plain' WHERE id=?", (source_id,))
+    response = client.get(f"/api/v2/sources/{source_id}/preview", headers=headers)
+    assert response.status_code == status
+    assert response.json() == {"error": {"code": code, "message": "Request could not be completed"}}
+    assert str(tmp_path) not in response.text
+
+
 def test_markdown_upload_is_literal_byte_exact_utf8_and_bounded(api) -> None:
     client, _, tmp_path = api
     _, headers = pair(client)

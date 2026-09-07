@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { sourceSchema, revisionSchema, projectSummarySchema, planSchema, jobSchema, sessionSchema, agentSchema,
   healthSchema, type HumanSession, type ProjectDocument, type RunnerSession } from '../contracts';
 import { catalogSchema, toolResultSchema, type ToolName } from '../tools/contracts';
+import type { SourceAsset } from '../contracts';
 
 const messages: Record<string, string> = {
   AUTHENTICATION_REQUIRED: 'Pair this studio with the local server first.',
@@ -48,8 +49,11 @@ export class StudioAPI {
   private runner?: RunnerSession;
   private runnerScope?: { project_id: string; revision: number };
   private runnerRegistration?: Promise<string>;
+  private previews = new Map<string, Blob>();
+  private previewEpoch = 0;
+  clearPreviews() { this.previews.clear(); this.previewEpoch++; }
   constructor(private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {}
-  forgetSessions() { this.human = undefined; this.runner = undefined; this.runnerScope = undefined; }
+  forgetSessions() { this.clearPreviews(); this.human = undefined; this.runner = undefined; this.runnerScope = undefined; }
   async disconnect() {
     try { await this.request('/session', z.undefined(), 'DELETE', undefined, this.operator()); }
     finally { this.forgetSessions(); }
@@ -86,6 +90,7 @@ export class StudioAPI {
   health() { return this.request('/health', healthSchema); }
   async pair(operatorCode: string) {
     const session = await this.request('/pair', sessionSchema, 'POST', { operator_code: operatorCode, actor_id: 'local-studio-creator' });
+    this.clearPreviews();
     this.human = session;
     return { actor_id: session.actor_id, expires_in_seconds: session.expires_in_seconds };
   }
@@ -123,6 +128,41 @@ export class StudioAPI {
   }
   sample() { return this.request('/sources/sample', sourceSchema, 'POST', {}, this.operator()); }
   sources() { return this.request('/sources', z.object({ sources: z.array(sourceSchema) }), 'GET', undefined, this.operator()); }
+  async sourcePreview(source: SourceAsset): Promise<Blob> {
+    const human = this.operator(), epoch = this.previewEpoch;
+    if (!/^src_[a-f0-9]{32}$/.test(source.id) || !/^[a-f0-9]{64}$/.test(source.sha256) ||
+        !['image/png', 'image/jpeg', 'image/webp'].includes(source.media_type) ||
+        !Number.isSafeInteger(source.size) || source.size < 1 || source.size > 10 * 1024 * 1024)
+      throw new StudioError('SOURCE_PREVIEW_UNAVAILABLE');
+    const key = `${source.id}:${source.sha256}:${source.size}:${source.media_type}`;
+    const cached = this.previews.get(key);
+    if (cached) { this.previews.delete(key); this.previews.set(key, cached); return cached; }
+    let response: Response;
+    try { response = await this.fetcher(`/api/v2/sources/${source.id}/preview`, {
+      headers: { Authorization: `Bearer ${human.session_token}` }, credentials: 'omit',
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(20000),
+    }); } catch { throw new StudioError('NETWORK_UNAVAILABLE'); }
+    if (!response.ok) throw new StudioError('SOURCE_PREVIEW_UNAVAILABLE', response.status);
+    if (response.headers.get('content-type') !== source.media_type ||
+        Number(response.headers.get('content-length')) !== source.size || !response.body)
+      throw new StudioError('SOURCE_INTEGRITY_FAILED');
+    const reader = response.body.getReader(), parts: Uint8Array<ArrayBuffer>[] = []; let size = 0;
+    try {
+      for (;;) { const part = await reader.read(); if (part.done) break;
+        size += part.value.byteLength;
+        if (size > source.size) throw new StudioError('SOURCE_INTEGRITY_FAILED');
+        parts.push(new Uint8Array(part.value)); }
+    } finally { await reader.cancel(); reader.releaseLock(); }
+    const blob = new Blob(parts, { type: source.media_type });
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())))
+      .map(n => n.toString(16).padStart(2, '0')).join('');
+    if (size !== source.size || hash !== source.sha256) throw new StudioError('SOURCE_INTEGRITY_FAILED');
+    if (epoch !== this.previewEpoch || human !== this.human) throw new StudioError('TOOL_CONTEXT_CHANGED');
+    this.previews.set(key, blob);
+    while (this.previews.size > 4 || [...this.previews.values()].reduce((sum, item) => sum + item.size, 0) > 20 * 1024 * 1024)
+      this.previews.delete(this.previews.keys().next().value!);
+    return blob;
+  }
   projects() { return this.request('/projects', z.object({ projects: z.array(projectSummarySchema) }), 'GET', undefined, this.operator()); }
   async upload(file: File, basis: 'owned' | 'licensed' | 'public-domain' | 'permission', reference: string) {
     if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt|md|markdown)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
