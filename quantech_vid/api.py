@@ -11,6 +11,7 @@ import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from threading import Lock
 from urllib.parse import unquote
 from uuid import uuid4
 
@@ -22,6 +23,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from .config import Settings
+from .engines import CodexEngineAdapter, CopilotEngineAdapter, AntigravityEngineAdapter
+from .engines.models import EngineConnection
 from .production_schemas import (AdmitSourceRequest, AuthorizePlanRequest, CreateProjectRequest,
     MigrateV1Request, OutputProfileV2, PrepareRenderPlanRequest, RegisterAgentRequest, ReviseProjectRequest,
     RunApprovedRenderRequest, SceneProjectV2, SceneV2, SourceAsset, SourceProvenance,
@@ -131,6 +134,32 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
     def agent(principal: dict = Depends(actor)) -> dict:
         if principal["kind"] != "agent": raise ContractError("AGENT_CLIENT_REQUIRED", 403)
         return principal
+
+    application.state.engine_inspectors = {
+        "openai_codex": CodexEngineAdapter(), "github_copilot": CopilotEngineAdapter(),
+        "google_antigravity": AntigravityEngineAdapter(),
+    }
+    engine_probe_lock = Lock()
+
+    @application.post("/api/v2/engines/{provider}/inspect")
+    def inspect_engine(provider: str, principal: dict = Depends(human)) -> dict:
+        del principal
+        adapter = application.state.engine_inspectors.get(provider)
+        if adapter is None:
+            raise ContractError("ENGINE_NOT_FOUND", 404)
+        if not engine_probe_lock.acquire(blocking=False):
+            raise ContractError("ENGINE_INSPECTION_BUSY", 429)
+        try:
+            # Explicit human request only: inspect the installed client; never
+            # begin login, start a model turn or enable a paid fallback.
+            connection = EngineConnection.model_validate(adapter.inspect(timeout=2.0))
+            if connection.provider != provider:
+                raise ValueError("provider mismatch")
+            return {"checked_at": now_iso(), "connection": connection.model_dump(mode="json")}
+        except Exception as exc:
+            raise ContractError("ENGINE_INSPECTION_FAILED", 503) from exc
+        finally:
+            engine_probe_lock.release()
 
     def file_sha256(path: Path) -> str:
         digest = hashlib.sha256()

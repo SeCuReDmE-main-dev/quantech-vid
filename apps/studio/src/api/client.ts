@@ -3,6 +3,7 @@ import { sourceSchema, revisionSchema, projectSummarySchema, planSchema, jobSche
   healthSchema, type HumanSession, type ProjectDocument, type RunnerSession } from '../contracts';
 import { catalogSchema, toolResultSchema, type ToolName } from '../tools/contracts';
 import type { SourceAsset } from '../contracts';
+import { engineStatusSchema, type EngineProvider } from './engine-contracts';
 
 const messages: Record<string, string> = {
   AUTHENTICATION_REQUIRED: 'Pair this studio with the local server first.',
@@ -88,6 +89,11 @@ export class StudioAPI {
   }
   private operator() { if (!this.human) throw new StudioError('AUTHENTICATION_REQUIRED'); return this.human; }
   health() { return this.request('/health', healthSchema); }
+  async inspectEngine(provider: EngineProvider) {
+    const result = await this.request(`/engines/${encodeURIComponent(provider)}/inspect`,engineStatusSchema,'POST',{},this.operator());
+    if(result.connection.provider!==provider)throw new StudioError('INVALID_RESPONSE');
+    return result;
+  }
   async pair(operatorCode: string) {
     const session = await this.request('/pair', sessionSchema, 'POST', { operator_code: operatorCode, actor_id: 'local-studio-creator' });
     this.clearPreviews();

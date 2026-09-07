@@ -11,6 +11,7 @@ import { TranscriptEditor } from './TranscriptEditor';
 import { VerifiedVideoPreview } from './VerifiedVideoPreview';
 import { SourceMetadata } from './SourceMetadata';
 import { SourcePreview } from './SourcePreview';
+import { EngineStatus } from './EngineStatus';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -379,7 +380,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
     </section>
     <section className="capabilities panel" aria-labelledby="capabilities-title"><h2 id="capabilities-title">Capability status, not promises</h2><div className="capability-grid">
       <div><strong>Manual studio</strong><p>{health?.capabilities.approved_silent_render ? 'Local silent FFmpeg path available; this session’s result is checked separately.' : 'Renderer availability not yet verified.'}</p></div>
-      {['Codex · ChatGPT', 'Copilot · GitHub', 'Antigravity · Google'].map(name => <div key={name}><strong>{name}</strong><p>Connector not qualified in this build. No credentials requested; no paid fallback.</p></div>)}
+      <EngineStatus key={String(paired)} api={api} disabled={!paired || frozen} />
     </div></section>
     <footer><p>SecuredMe · Human direction, local production, inspectable evidence.</p>{paired && <button disabled={!!busy || activeJob || toolExecuting} onClick={() => void perform('Revoking this studio session', async () => { try { await disableTools(); await api.disconnect(); } finally { setPaired(false); setApproved(false); setReviewed(false); } })}>Disconnect this studio</button>}</footer>
   </div>;

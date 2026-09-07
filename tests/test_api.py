@@ -73,6 +73,44 @@ def pair(client: TestClient, actor_id: str = "teacher") -> tuple[dict, dict]:
     return body, headers
 
 
+def test_engine_inspection_is_human_only_filtered_and_not_production(api) -> None:
+    from quantech_vid.engines import CodexEngineAdapter
+    client, app, _ = api
+    calls = []
+
+    class FixtureInspector:
+        def inspect(self, *, timeout):
+            calls.append(timeout)
+            return CodexEngineAdapter(resolver=lambda _: None).inspect()
+
+    app.state.engine_inspectors["openai_codex"] = FixtureInspector()
+    assert client.post("/api/v2/engines/openai_codex/inspect", headers=BASE_HEADERS).status_code == 401
+    _, headers = pair(client)
+    no_csrf = {key: value for key, value in headers.items() if key != "x-csrf-token"}
+    assert client.post("/api/v2/engines/openai_codex/inspect", headers=no_csrf).status_code == 403
+    assert calls == []
+    result = client.post("/api/v2/engines/openai_codex/inspect", headers=headers)
+    assert result.status_code == 200
+    assert result.json()["connection"]["production"] == "unavailable"
+    assert result.json()["connection"]["client"]["installation"] == "missing"
+    assert calls == [2.0]
+    project_id, _, _ = setup_project(client, headers)
+    _, agent_headers = create_agent(client, headers, project_id)
+    assert client.post("/api/v2/engines/openai_codex/inspect", headers=agent_headers).status_code == 403
+    assert client.post("/api/v2/engines/unknown/inspect", headers=headers).status_code == 404
+    assert calls == [2.0]
+
+    class FailingInspector:
+        def inspect(self, **kwargs):
+            raise RuntimeError("PRIVATE_ACCOUNT_AND_PATH")
+
+    app.state.engine_inspectors["openai_codex"] = FailingInspector()
+    failure = client.post("/api/v2/engines/openai_codex/inspect", headers=headers)
+    assert failure.status_code == 503
+    assert "PRIVATE_ACCOUNT" not in failure.text
+    assert failure.json()["error"]["code"] == "ENGINE_INSPECTION_FAILED"
+
+
 def setup_project(client: TestClient, human_headers: dict) -> tuple[str, dict, str]:
     admitted = client.post("/api/v2/sources/admit", headers=human_headers, json={
         "selection_token": "selection-token-0001",
