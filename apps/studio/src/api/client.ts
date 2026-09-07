@@ -2,10 +2,20 @@ import { z } from 'zod';
 import { sourceSchema, revisionSchema, projectSummarySchema, planSchema, jobSchema, sessionSchema, agentSchema,
   healthSchema, type HumanSession, type ProjectDocument, type RunnerSession } from '../contracts';
 import { catalogSchema, toolResultSchema, type ToolName } from '../tools/contracts';
-import type { SourceAsset } from '../contracts';
+import type { SourceAsset, NarrationMode } from '../contracts';
 import { engineStatusSchema, type EngineProvider } from './engine-contracts';
 
 const messages: Record<string, string> = {
+  LOCAL_VOICE_UNAVAILABLE: 'The server has no qualified local voice runtime. Choose silent rendering or ask the operator to qualify the isolated CPU runtime. No cloud fallback was requested.',
+  LOCAL_VOICE_LOCALE_UNSUPPORTED: 'This experimental stock voice supports English only.',
+  LOCAL_VOICE_VOICE_NOT_ALLOWED: 'Only the stock af_heart voice is allowed. Personal and cloned voices are not supported.',
+  LOCAL_VOICE_TEXT_INVALID: 'Use 1–1,000 characters of English narration for this local voice test.',
+  LOCAL_VOICE_AUDIO_EXCEEDS_TIMELINE: 'The spoken audio is longer than this film. Extend the scene durations, save and approve a new plan; speech was not silently cut.',
+  LOCAL_VOICE_RESOURCE_INTEGRITY_FAILED: 'The voice runtime changed or failed its integrity check. No replacement provider was used; prepare a new plan after operator verification.',
+  LOCAL_VOICE_INTEGRITY_FAILED: 'The server could not verify its voice runtime. No cloud fallback was used; ask the operator to check the resources.',
+  LOCAL_VOICE_BINDING_MISMATCH: 'The voice resources no longer match this approved plan. Review a new plan after the runtime is verified.',
+  LOCAL_VOICE_SYNTHESIS_TIMEOUT: 'Local speech synthesis exceeded its time limit and was stopped. No cloud provider was substituted.',
+  LOCAL_VOICE_SYNTHESIS_FAILED: 'Local speech synthesis failed. Inspect the existing job; no automatic retry or cloud fallback was made.',
   AUTHENTICATION_REQUIRED: 'Pair this studio with the local server first.',
   SESSION_EXPIRED: 'This local session expired. Pair again; your draft is preserved.',
   PAIRING_REJECTED: 'This one-time code is invalid, expired, or already used. Create a fresh code in the local server.',
@@ -61,7 +71,7 @@ export class StudioAPI {
   }
 
   private async request<T>(path: string, schema: z.ZodType<T>, method = 'GET',
-    body?: unknown, credentials?: Credentials, idempotencyKey?: string, signal?: AbortSignal): Promise<T> {
+    body?: unknown, credentials?: Credentials, idempotencyKey?: string, signal?: AbortSignal, timeoutMs = 20000): Promise<T> {
     const headers = new Headers({ Accept: 'application/json' });
     if (body !== undefined) headers.set('Content-Type', 'application/json');
     if (credentials) {
@@ -72,7 +82,7 @@ export class StudioAPI {
     let response: Response;
     try {
       response = await this.fetcher(`/api/v2${path}`, { method, headers, credentials: 'omit',
-        cache: 'no-store', redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20000)]) : AbortSignal.timeout(20000),
+        cache: 'no-store', redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
         body: body === undefined ? undefined : JSON.stringify(body) });
     } catch { throw new StudioError('NETWORK_UNAVAILABLE'); }
     if (response.status === 204) return undefined as T;
@@ -230,9 +240,11 @@ export class StudioAPI {
   save(projectId: string, base_revision: number, document: ProjectDocument) {
     return this.request(`/projects/${encodeURIComponent(projectId)}`, revisionSchema, 'PUT', { base_revision, document }, this.operator());
   }
-  plan(project_id: string, revision: number, profile: string) { return this.request('/render-plans', planSchema, 'POST', {
-    project_id, revision, locale: 'en', profile, narration_mode: 'silent', max_duration_seconds: 600, max_output_bytes: 500_000_000,
-  }, this.operator()); }
+  plan(project_id: string, revision: number, profile: string, narration_mode: NarrationMode = 'silent') { return this.request('/render-plans', planSchema, 'POST', {
+    project_id, revision, locale: 'en', profile, narration_mode, max_duration_seconds: 600, max_output_bytes: 500_000_000,
+  // Measured full local-resource verification took 19.061s. Bound this explicit
+  // optional planning call at 60s; no automatic retry or approval is introduced.
+  }, this.operator(), undefined, undefined, narration_mode === 'local_kokoro_cpu' ? 60000 : 20000); }
   async approve(planId: string, project_id: string, revision: number) {
     const agent_id = await this.ensureRunner(project_id, revision);
     return this.request(`/render-plans/${encodeURIComponent(planId)}/authorize`, z.object({ grant_id: z.string(),

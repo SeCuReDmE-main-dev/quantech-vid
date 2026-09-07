@@ -92,10 +92,18 @@ class ProductionService:
                                         int(plan.limits["max_scene3d_frame_bytes"]))
             manifest_path = input_dir / "project.json"
             manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+            render_kwargs = {
+                "progress": lambda value: self.store.update_job(job.id, progress=value),
+                "cancelled": lambda: self.store.cancellation_requested(job.id),
+            }
+            if plan.narration_mode == "local_kokoro_cpu":
+                render_kwargs.update({
+                    "local_voice": self.store.local_voice,
+                    "local_voice_binding": plan.provider_resource_modes.get("local_voice"),
+                })
             artifacts = list(self.render_fn(
-                self.settings, manifest_path, manifest, plan.locale, plan.profile, output_dir, "silent",
-                progress=lambda value: self.store.update_job(job.id, progress=value),
-                cancelled=lambda: self.store.cancellation_requested(job.id),
+                self.settings, manifest_path, manifest, plan.locale, plan.profile, output_dir,
+                plan.narration_mode, **render_kwargs,
             ))
             if self.store.cancellation_requested(job.id):
                 raise InterruptedError
@@ -165,6 +173,14 @@ class ProductionService:
                      "THREED_PROFILE_LIMIT_EXCEEDED", "THREED_FRAME_LIMIT_EXCEEDED",
                      "THREED_FRAME_BYTES_LIMIT_EXCEEDED", "THREED_RENDER_DEADLINE_EXCEEDED"}
             known.update({"SOURCE_ORIGINAL_INTEGRITY_FAILED", "PLAN_INTEGRITY_FAILED"})
+            known.update({
+                "LOCAL_VOICE_UNAVAILABLE", "LOCAL_VOICE_INTEGRITY_FAILED",
+                "LOCAL_VOICE_BINDING_MISMATCH", "LOCAL_VOICE_LOCALE_UNSUPPORTED",
+                "LOCAL_VOICE_VOICE_NOT_ALLOWED", "LOCAL_VOICE_TEXT_INVALID",
+                "LOCAL_VOICE_AUDIO_EXCEEDS_TIMELINE", "LOCAL_VOICE_AUDIO_INVALID",
+                "LOCAL_VOICE_CPU_REQUIRED", "LOCAL_VOICE_SYNTHESIS_TIMEOUT",
+                "LOCAL_VOICE_SYNTHESIS_FAILED", "LOCAL_VOICE_CANCELLED",
+            })
             code = str(exc) if str(exc) in known else "RENDER_FAILED"
             self.store.update_job(job.id, status="failed", error_code=code)
         return self.store.job_internal(job_id)[0]

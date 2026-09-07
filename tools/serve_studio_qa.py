@@ -19,6 +19,8 @@ from quantech_vid.config import Settings
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8791)
+    parser.add_argument("--local-voice-root", type=Path, default=None,
+                        help="Explicit isolated Kokoro runtime for synthetic CPU QA; never downloads resources")
     arguments = parser.parse_args()
     if not 1024 <= arguments.port <= 65535:
         parser.error("port must be 1024-65535")
@@ -28,7 +30,8 @@ def main() -> None:
     data = Path(tempfile.mkdtemp(prefix="quantech-studio-qa-"))
     settings = Settings(root=root, data_dir=data, host="127.0.0.1", port=arguments.port,
                         allowed_asset_roots=(data,), tts_model="disabled", tts_voice_fr="disabled",
-                        tts_voice_en="disabled", max_workers=1)
+                        tts_voice_en="disabled", max_workers=1,
+                        local_voice_runtime_root=arguments.local_voice_root)
     settings.ensure_directories()
     code = secrets.token_urlsafe(24)
     origin = f"http://127.0.0.1:{arguments.port}"

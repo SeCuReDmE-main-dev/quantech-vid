@@ -116,11 +116,13 @@ export type ProjectRevision = z.infer<typeof revisionSchema>;
 export const projectSummarySchema = z.object({ project_id: id, revision: z.number().int().positive(),
   document_hash: hash, slug: z.string(), title: z.string(), created_at: z.string() });
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
+export type NarrationMode = 'silent' | 'local_kokoro_cpu';
 export const planSchema = z.object({
   id, project_id: id, revision: z.number().int().positive(), project_hash: hash,
   asset_hashes: z.record(z.string(), hash), locale: z.enum(['fr', 'en']), profile: z.string(),
   original_hashes: z.record(z.string().regex(/^src_[a-f0-9]{32}$/), hash).optional(),
   provider_resource_modes: z.record(z.string(), z.string()),
+  narration_mode: z.enum(['silent', 'local_kokoro_cpu']).optional(),
   limits: z.record(z.string(), z.number().finite()), plan_hash: hash, created_at: z.string(),
 });
 export type RenderPlan = z.infer<typeof planSchema>;

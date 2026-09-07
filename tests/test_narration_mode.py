@@ -5,7 +5,7 @@ import pytest
 from quantech_vid.renderer import render_project
 
 
-@pytest.mark.parametrize("mode", ["", "open_ai", "local_kokoro_cpu", "auto", None])
+@pytest.mark.parametrize("mode", ["", "open_ai", "local_kokoro_gpu", "auto", None])
 def test_unknown_narration_never_falls_through_to_paid_synthesis(tmp_path: Path, monkeypatch, mode):
     def forbidden(*args, **kwargs):
         raise AssertionError("No voice provider may run for an unsupported mode")

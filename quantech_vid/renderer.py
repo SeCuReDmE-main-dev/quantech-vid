@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import os
 import re
 import shutil
 import time
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -15,12 +17,15 @@ import imageio_ffmpeg
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from .config import Settings
+from .local_voice import (LocalVoiceError, LocalVoicePilot, MAX_AUDIO_SECONDS,
+                          MAX_TEXT_CHARS, MODEL_FILENAME, PILOT_LANGUAGE,
+                          PILOT_VOICE, SAMPLE_RATE)
 from .process import run_command
 from .scene3d import (SCENE3D_DEADLINE_SECONDS, Scene3DError, bundle_identity,
                       capture_scene_frames, validate_project_bounds)
 from .schemas import ProjectManifest, Scene
 from .subtitles import write_subtitles
-from .tts import silent_wav, synthesize
+from .tts import normalize_audio, silent_wav, synthesize
 
 
 def sha256_file(path: Path) -> str:
@@ -326,6 +331,68 @@ def _remove_work_dirs(output_dir: Path, work_dirs: list[Path]) -> None:
             shutil.rmtree(resolved)
 
 
+def _prepare_narration(
+    settings: Settings,
+    manifest: ProjectManifest,
+    track: object,
+    locale: str,
+    output_dir: Path,
+    narration_mode: str,
+    *,
+    local_voice: LocalVoicePilot | None = None,
+    local_voice_binding: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> tuple[Path, bool, str, str, str | None]:
+    if narration_mode == "silent":
+        narration = silent_wav(output_dir / "narration.wav", manifest.duration)
+        return narration, False, sha256_file(narration), "local-silence-generator", None
+    if narration_mode == "openai":
+        narration, cache_hit, narration_hash = synthesize(
+            settings, track.narration, locale, manifest.duration, voice=track.voice
+        )
+        return narration, cache_hit, narration_hash, settings.tts_model, track.voice
+    if narration_mode != "local_kokoro_cpu":
+        raise ValueError("NARRATION_MODE_UNSUPPORTED")
+    if local_voice is None or local_voice_binding is None:
+        raise LocalVoiceError("LOCAL_VOICE_UNAVAILABLE")
+    if locale != "en" or track.locale != "en":
+        raise LocalVoiceError("LOCAL_VOICE_LOCALE_UNSUPPORTED")
+    if track.voice not in {None, PILOT_VOICE}:
+        raise LocalVoiceError("LOCAL_VOICE_VOICE_NOT_ALLOWED")
+    if not track.narration.strip() or len(track.narration) > MAX_TEXT_CHARS:
+        raise LocalVoiceError("LOCAL_VOICE_TEXT_INVALID")
+    _, current_binding = local_voice.binding()
+    if not hmac.compare_digest(current_binding, local_voice_binding):
+        raise LocalVoiceError("LOCAL_VOICE_BINDING_MISMATCH")
+    result = local_voice.synthesize(
+        track.narration, output_dir, timeout=180, cancelled=cancelled
+    )
+    if result.binding_sha256 != local_voice_binding:
+        raise LocalVoiceError("LOCAL_VOICE_BINDING_MISMATCH")
+    try:
+        audio = result.receipt["audio"]
+        runtime = result.receipt["runtime"]
+        frames = audio["frames"]
+        sample_rate = audio["sample_rate"]
+        providers = runtime["providers"]
+    except (KeyError, TypeError) as exc:
+        raise LocalVoiceError("LOCAL_VOICE_AUDIO_INVALID") from exc
+    if providers != ["CPUExecutionProvider"]:
+        raise LocalVoiceError("LOCAL_VOICE_CPU_REQUIRED")
+    if (isinstance(frames, bool) or not isinstance(frames, int) or frames < 1
+            or isinstance(sample_rate, bool) or not isinstance(sample_rate, int)
+            or sample_rate != SAMPLE_RATE
+            or frames > SAMPLE_RATE * MAX_AUDIO_SECONDS):
+        raise LocalVoiceError("LOCAL_VOICE_AUDIO_INVALID")
+    maximum_frames = math.floor(manifest.duration * sample_rate + 1e-9)
+    if frames > maximum_frames:
+        raise LocalVoiceError("LOCAL_VOICE_AUDIO_EXCEEDS_TIMELINE")
+    narration = normalize_audio(
+        result.wav_path, output_dir / "narration.wav", manifest.duration
+    )
+    return narration, False, sha256_file(narration), MODEL_FILENAME, PILOT_VOICE
+
+
 def render_project(
     settings: Settings,
     manifest_path: Path,
@@ -336,8 +403,10 @@ def render_project(
     narration_mode: str,
     progress: Callable[[int], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    local_voice: LocalVoicePilot | None = None,
+    local_voice_binding: str | None = None,
 ) -> list[Path]:
-    if narration_mode not in {"silent", "openai"}:
+    if narration_mode not in {"silent", "openai", "local_kokoro_cpu"}:
         raise ValueError("NARRATION_MODE_UNSUPPORTED")
     notify = progress or (lambda _: None)
     is_cancelled = cancelled or (lambda: False)
@@ -346,13 +415,11 @@ def render_project(
     output_dir.mkdir(parents=True, exist_ok=True)
     notify(5)
 
-    if narration_mode == "silent":
-        narration = silent_wav(output_dir / "narration.wav", manifest.duration)
-        cache_hit, narration_hash = False, sha256_file(narration)
-    else:
-        narration, cache_hit, narration_hash = synthesize(
-            settings, track.narration, locale, manifest.duration, voice=track.voice
-        )
+    narration, cache_hit, narration_hash, narration_model, narration_voice = _prepare_narration(
+        settings, manifest, track, locale, output_dir, narration_mode,
+        local_voice=local_voice, local_voice_binding=local_voice_binding,
+        cancelled=is_cancelled,
+    )
     notify(20)
 
     frame_paths: list[Path] = []
@@ -478,9 +545,11 @@ def render_project(
         "source_url": str(manifest.source_url) if manifest.source_url else None,
         "manifest_sha256": sha256_file(manifest_path),
         "assets": [{"path": scene.asset, "sha256": sha256_file(manifest_path.parent / scene.asset)} for scene in manifest.scenes],
-        "narration": {"mode": narration_mode, "model": settings.tts_model, "voice": track.voice, "hash": narration_hash, "cache_hit": cache_hit},
+        "narration": {"mode": narration_mode, "model": narration_model, "voice": narration_voice, "hash": narration_hash, "cache_hit": cache_hit},
         "disclosure": manifest.disclosure,
     }
+    if narration_mode == "local_kokoro_cpu":
+        provenance["narration"]["resource_binding"] = local_voice_binding
     provenance_path.write_text(json.dumps(provenance, indent=2), encoding="utf-8")
     notify(100)
     return [mp4, webm, srt, vtt, poster, provenance_path, qa_path]

@@ -14,6 +14,8 @@ import { SourcePreview } from './SourcePreview';
 import { EngineStatus } from './EngineStatus';
 import { RevisionDiff } from './RevisionDiff';
 import { WorkspaceLayout } from './WorkspaceLayout';
+import { NarrationSelector } from './NarrationSelector';
+import type { NarrationMode } from './contracts';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -30,6 +32,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
   const [sources, setSources] = useState<SourceAsset[]>([]);
   const [sceneIndex, setSceneIndex] = useState(0);
   const [profile, setProfile] = useState('landscape');
+  const [narrationMode, setNarrationMode] = useState<NarrationMode>('silent');
   const [plan, setPlan] = useState<RenderPlan | null>(null);
   const [approved, setApproved] = useState(false);
   const [reviewed, setReviewed] = useState(false);
@@ -304,13 +307,13 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
             }
           }} />}
       </aside>
-      <section className="panel timeline" aria-labelledby="timeline-title"><div className="section-head"><h2 id="timeline-title">Timeline</h2><span>{document ? timeline(document).at(-1)?.end.toFixed(1) : '0.0'} seconds · English · silent render</span></div>
+      <section className="panel timeline" aria-labelledby="timeline-title"><div className="section-head"><h2 id="timeline-title">Timeline</h2><span>{document ? timeline(document).at(-1)?.end.toFixed(1) : '0.0'} seconds · English · {narrationMode === 'silent' ? 'silent render' : 'experimental local voice requested'}</span></div>
         <ol>{document && timeline(document).map((scene, i) => <li key={scene.id} className={selectedScene?.id === scene.id ? 'selected' : ''}>
           <button disabled={frozen} onClick={() => setSceneIndex(i)} aria-label={`Select scene ${i + 1}: ${scene.title.en || 'Untitled'}`} aria-pressed={selectedScene?.id === scene.id}><small>{scene.start.toFixed(1)}–{scene.end.toFixed(1)}s</small><strong>{scene.title.en || `Scene ${i + 1}`}</strong></button>
           <div className="toolbar"><button aria-label={`Move scene ${i + 1} earlier`} disabled={i === 0 || frozen} onClick={() => { change(moveScene(document, i, -1)); setSceneIndex(i - 1); }}>←</button><button aria-label={`Move scene ${i + 1} later`} disabled={i === document.scenes.length - 1 || frozen} onClick={() => { change(moveScene(document, i, 1)); setSceneIndex(i + 1); }}>→</button></div>
         </li>)}</ol>
         {!document && <div className="empty">Scene order and timing become visible after you admit a source.</div>}
-        {document && <label>Narration / caption text<textarea rows={3} maxLength={8000} value={document.tracks.find(t => t.locale === 'en')?.narration ?? ''} disabled={frozen} onChange={e => change({ ...document, tracks: document.tracks.map(t => t.locale === 'en' ? { ...t, narration: e.target.value } : t) })} /><span className="fine">Stored for editing. This qualified render is silent: no cloud voice request is made.</span></label>}
+        {document && <label>Narration / caption text<textarea rows={3} maxLength={8000} value={document.tracks.find(t => t.locale === 'en')?.narration ?? ''} disabled={frozen} onChange={e => change({ ...document, tracks: document.tracks.map(t => t.locale === 'en' ? { ...t, narration: e.target.value } : t) })} /><span className="fine">Stored for editing. Select the narration engine below; silent is the default and no cloud voice is requested.</span></label>}
         {document && <TranscriptEditor key={document.slug} segments={document.tracks.find(t => t.locale === 'en')?.segments ?? []}
           duration={document.scenes.reduce((sum, scene) => sum + scene.duration, 0)} sourceIds={document.sources}
           disabled={workLocked || claimEditing || visualEditing} onEditingChange={setTranscriptEditing} onChange={segments => {
@@ -326,7 +329,8 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
       </section>
     </WorkspaceLayout>
     <section className="production panel" aria-labelledby="production-title"><div><p className="eyebrow">04 · PRODUCTION CONTROL</p><h2 id="production-title">Prepare. Review. Then render.</h2><p>Saving a project never starts a job. Changing its revision invalidates the previous plan.</p></div>
-      <button disabled={!paired || !revision || dirty || frozen || !health?.capabilities.approved_silent_render} onClick={() => void perform('Preparing a bounded plan', async () => { if (revision) { setPlan(await api.plan(revision.project_id, revision.revision, profile)); setApproved(false); setReviewed(false); setJob(null); setMedia(null); } })}>Prepare render plan</button>
+      <NarrationSelector value={narrationMode} disabled={frozen} onChange={value => { setNarrationMode(value); invalidatePlan(); setJob(null); setMedia(null); }} />
+      <button disabled={!paired || !revision || dirty || frozen || !health?.capabilities.approved_silent_render} onClick={() => void perform('Preparing a bounded plan', async () => { if (revision) { setPlan(await api.plan(revision.project_id, revision.revision, profile, narrationMode)); setApproved(false); setReviewed(false); setJob(null); setMedia(null); } })}>Prepare render plan</button>
       {dirty && <p className="fine">Save your changes before preparing a plan.</p>}
       {plan && <div className="plan-review"><h3>Review this exact plan</h3><dl><dt>Revision</dt><dd>{plan.revision}</dd><dt>Output</dt><dd>{plan.profile}</dd><dt>Engines</dt><dd>{Object.values(plan.provider_resource_modes).join(' · ')}</dd><dt>Source fingerprints</dt><dd>{Object.keys(plan.asset_hashes).length}</dd><dt>Plan fingerprint</dt><dd><code>{plan.plan_hash}</code></dd></dl>
         <p className="fine">{Object.keys(plan.original_hashes ?? {}).length

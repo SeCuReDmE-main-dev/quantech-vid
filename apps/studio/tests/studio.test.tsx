@@ -56,6 +56,24 @@ it('invalidates a reviewed plan when a scene changes, preserving undo', async ()
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect((screen.getByLabelText('Scene heading') as HTMLInputElement).value).toBe('From an idea to a visible result');
 });
+it('invalidates an approved plan when narration mode changes without automatically planning or rendering', async () => {
+  const api = fixtureAPI(); render(<Studio api={api} />); await pair();
+  fireEvent.click(screen.getByRole('button', { name: 'Create a synthetic sample' }));
+  await screen.findByDisplayValue('My first verified film');
+  fireEvent.click(screen.getByRole('button', { name: 'Save project' })); await screen.findByText(/Saved revision 1/);
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare render plan' })); await screen.findByText('Review this exact plan');
+  expect(api.plan).toHaveBeenLastCalledWith(plan.project_id, 1, 'landscape', 'silent');
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: 'Approve this plan' })); await screen.findByText(/No render has started/);
+  fireEvent.change(screen.getByRole('combobox', { name: /Narration engine/ }), { target: { value: 'local_kokoro_cpu' } });
+  expect(screen.queryByText('Review this exact plan')).toBeNull();
+  expect(api.run).not.toHaveBeenCalled(); expect(api.plan).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare render plan' })); await screen.findByText('Review this exact plan');
+  expect(api.plan).toHaveBeenLastCalledWith(plan.project_id, 1, 'landscape', 'local_kokoro_cpu');
+  expect((screen.getByRole('button', { name: 'Approve this plan' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(api.approve).toHaveBeenCalledOnce();
+});
+
 it('shows unavailable provider capabilities instead of presenting fake login buttons', async () => {
   render(<Studio api={fixtureAPI()} />);
   await screen.findByText('Local server test');

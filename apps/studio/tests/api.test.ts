@@ -12,6 +12,18 @@ const runner = { agent_id: 'agent', actor_type: 'agent', client_token: 'test-age
 const projectId = `prj_${'a'.repeat(32)}`;
 
 describe('same-origin studio client', () => {
+  it('keeps silent default and gives only explicit CPU planning a bounded resource-check deadline', async () => {
+    const timer = vi.spyOn(AbortSignal, 'timeout');
+    const mock = vi.fn().mockResolvedValueOnce(json(human)).mockImplementation(async () => json(plan));
+    const api = new StudioAPI(mock as typeof fetch); await api.pair('synthetic-code');
+    await api.plan(projectId, 1, 'landscape');
+    expect(JSON.parse(mock.mock.calls.at(-1)![1].body).narration_mode).toBe('silent');
+    expect(timer).toHaveBeenLastCalledWith(20000);
+    await api.plan(projectId, 1, 'landscape', 'local_kokoro_cpu');
+    expect(JSON.parse(mock.mock.calls.at(-1)![1].body).narration_mode).toBe('local_kokoro_cpu');
+    expect(timer).toHaveBeenLastCalledWith(60000);
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
   it('holds credentials in memory, applies CSRF only to human mutations and reuses request IDs', async () => {
     const mock = vi.fn().mockResolvedValueOnce(json(human)).mockResolvedValueOnce(json(source))
       .mockResolvedValueOnce(json(runner)).mockResolvedValueOnce(json({ grant_id: 'grant', plan_id: plan.id, scope: 'render', status: 'approved' }))

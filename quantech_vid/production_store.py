@@ -5,6 +5,7 @@ import hmac
 import json
 import secrets
 import sqlite3
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
@@ -19,6 +20,8 @@ from .production_schemas import (
     SourceAsset,
     OriginalSourceDescriptor,
 )
+from .local_voice import (LocalVoiceError, LocalVoicePilot, MAX_TEXT_CHARS,
+                          PILOT_LANGUAGE, PILOT_VOICE)
 from .scene3d import (MAX_SCENE3D_FRAME_BYTES, MAX_SCENE3D_FRAMES, Scene3DUnavailable,
                       runtime_binding)
 
@@ -64,9 +67,11 @@ class ContractError(Exception):
 
 
 class ProductionStore:
-    def __init__(self, path: Path, signing_key: bytes, pairing_code: str | None = None) -> None:
+    def __init__(self, path: Path, signing_key: bytes, pairing_code: str | None = None,
+                 local_voice: LocalVoicePilot | None = None) -> None:
         self.path = path
         self.signing_key = signing_key
+        self.local_voice = local_voice
         self.lock = Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize(pairing_code)
@@ -533,6 +538,9 @@ class ProductionStore:
         document = revision.document
         if data["locale"] not in {item.locale for item in document.tracks} or data["profile"] not in {item.name for item in document.output_profiles}:
             raise ContractError("PLAN_TARGET_NOT_DECLARED", 422)
+        track = next(item for item in document.tracks if item.locale == data["locale"])
+        if data["narration_mode"] == "local_kokoro_cpu":
+            self._validate_local_voice_target(data["locale"], track.narration, track.voice)
         rows = self.source_rows(actor, document.sources)
         asset_hashes = {row["id"]: row["sha256"] for row in rows}
         originals = self._verified_originals(rows)
@@ -540,6 +548,14 @@ class ProductionStore:
         max_duration = data.pop("max_duration_seconds")
         max_output = data.pop("max_output_bytes")
         resource_modes = {"narration": "local-silent", "render": "local-ffmpeg"}
+        if data["narration_mode"] == "local_kokoro_cpu":
+            resource_modes = {
+                "narration": "local-kokoro-cpu",
+                "render": "local-ffmpeg",
+                "local_voice": self._local_voice_binding(),
+                "local_voice_voice": PILOT_VOICE,
+                "local_voice_language": PILOT_LANGUAGE,
+            }
         limits = {"max_duration_seconds": max_duration, "max_output_bytes": max_output}
         if any(scene.visual_3d is not None for scene in document.scenes):
             try:
@@ -562,6 +578,35 @@ class ProductionStore:
                 row = db.execute("SELECT payload_json FROM render_plans WHERE plan_hash=?", (plan_hash,)).fetchone()
                 return RenderPlan.model_validate_json(row[0])
         return plan
+
+    @staticmethod
+    def _validate_local_voice_target(locale: str, narration: str,
+                                     voice: str | None) -> None:
+        if locale != "en":
+            raise ContractError("LOCAL_VOICE_LOCALE_UNSUPPORTED", 422)
+        if voice not in {None, PILOT_VOICE}:
+            raise ContractError("LOCAL_VOICE_VOICE_NOT_ALLOWED", 422)
+        if not narration.strip() or len(narration) > MAX_TEXT_CHARS:
+            raise ContractError("LOCAL_VOICE_TEXT_INVALID", 422)
+
+    def _local_voice_binding(self) -> str:
+        if self.local_voice is None:
+            raise ContractError("LOCAL_VOICE_UNAVAILABLE", 503)
+        try:
+            _, binding = self.local_voice.binding()
+        except LocalVoiceError as exc:
+            integrity_codes = {
+                "LOCAL_VOICE_RESOURCE_INTEGRITY_FAILED",
+                "LOCAL_VOICE_RESOURCE_LINK_REJECTED",
+                "LOCAL_VOICE_RESOURCE_OUTSIDE_ROOT",
+                "LOCAL_VOICE_BINDING_MISMATCH",
+            }
+            code = ("LOCAL_VOICE_INTEGRITY_FAILED"
+                    if exc.code in integrity_codes else "LOCAL_VOICE_UNAVAILABLE")
+            raise ContractError(code, 409 if code.endswith("INTEGRITY_FAILED") else 503) from exc
+        if not isinstance(binding, str) or re.fullmatch(r"[0-9a-f]{64}", binding) is None:
+            raise ContractError("LOCAL_VOICE_INTEGRITY_FAILED", 409)
+        return binding
 
     def get_plan(self, actor: dict, plan_id: str) -> RenderPlan:
         owner = self._owner_for(actor)
@@ -786,4 +831,21 @@ class ProductionStore:
                 raise ContractError("THREED_RENDERER_UNAVAILABLE", 503) from exc
             if not expected_scene3d or not hmac.compare_digest(expected_scene3d, current_scene3d):
                 raise ContractError("THREED_BUNDLE_MISMATCH", 409)
+        if plan.narration_mode == "local_kokoro_cpu":
+            track = next((item for item in revision.document.tracks
+                          if item.locale == plan.locale), None)
+            if track is None:
+                raise ContractError("PLAN_INTEGRITY_FAILED", 409)
+            self._validate_local_voice_target(plan.locale, track.narration, track.voice)
+            modes = plan.provider_resource_modes
+            if (modes.get("narration") != "local-kokoro-cpu"
+                    or modes.get("render") != "local-ffmpeg"
+                    or modes.get("local_voice_voice") != PILOT_VOICE
+                    or modes.get("local_voice_language") != PILOT_LANGUAGE):
+                raise ContractError("PLAN_INTEGRITY_FAILED", 409)
+            expected_voice = modes.get("local_voice")
+            current_voice = self._local_voice_binding()
+            if (not expected_voice
+                    or not hmac.compare_digest(expected_voice, current_voice)):
+                raise ContractError("LOCAL_VOICE_BINDING_MISMATCH", 409)
         return plan, revision, sources, originals

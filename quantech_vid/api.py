@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from .config import Settings
+from .local_voice import LocalVoiceError, LocalVoicePilot, LocalVoiceResources
 from .engines import CodexEngineAdapter, CopilotEngineAdapter, AntigravityEngineAdapter
 from .engines.models import EngineConnection
 from .production_schemas import (AdmitSourceRequest, AuthorizePlanRequest, CreateProjectRequest,
@@ -104,7 +105,17 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         signing_key=_signing_key(runtime.data_dir))
     if config.pairing_code is not None and len(config.pairing_code) < 16:
         raise ValueError("The operator pairing code must contain at least 16 characters")
-    store = ProductionStore(runtime.data_dir / "production.sqlite3", config.signing_key or _signing_key(runtime.data_dir), config.pairing_code)
+    local_voice = None
+    if runtime.local_voice_runtime_root is not None:
+        try:
+            candidate = LocalVoicePilot(LocalVoiceResources.discover(runtime.local_voice_runtime_root))
+            candidate.binding()  # Operator-configured fixed resources, no synthesis or download.
+            local_voice = candidate
+        except LocalVoiceError:
+            # Keep the manual/silent studio usable; do not expose paths or substitute a provider.
+            pass
+    store = ProductionStore(runtime.data_dir / "production.sqlite3", config.signing_key or _signing_key(runtime.data_dir), config.pairing_code,
+                            local_voice=local_voice)
     service = ProductionService(runtime, store, render_fn=render_fn, background=config.background_jobs)
     application = FastAPI(title="QuaNTecH-ViD Studio", version="2.1.0")
     application.add_middleware(LoopbackBoundary, config=config)
@@ -207,7 +218,8 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                         and os.access(runtime.data_dir, os.W_OK))
         return {"status": "ok", "version": application.version, "loopback": True,
             "capabilities": {"approved_silent_render": render_ready, "network_import": False,
-                             "legacy_render": False, "paid_narration": False}}
+                             "legacy_render": False, "paid_narration": False,
+                             "experimental_local_voice_configured": local_voice is not None}}
 
     @application.post("/api/v2/pair", status_code=201)
     def pair(payload: dict) -> dict:

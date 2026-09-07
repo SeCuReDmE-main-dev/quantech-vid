@@ -202,7 +202,7 @@ def test_render_projects_warning_and_receipted_claim_sidecar(tmp_path: Path) -> 
     job = ProductionJob(id="job_" + "d" * 32, project_id=revision.project_id, revision=2,
         plan_id="plan_" + "e" * 32, status="queued", progress=0,
         created_at=now_iso(), updated_at=now_iso())
-    plan = SimpleNamespace(id=job.plan_id, locale="en", profile="square",
+    plan = SimpleNamespace(id=job.plan_id, locale="en", profile="square", narration_mode="silent",
         limits={"max_duration_seconds": 5, "max_output_bytes": 1_000_000})
     store = RenderStore(job, plan, revision,
         [{"id": SOURCE_ID, "sha256": source_hash, "internal_path": str(source_path)}])

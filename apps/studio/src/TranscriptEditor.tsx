@@ -12,7 +12,7 @@ export function TranscriptEditor({ segments, duration, sourceIds, disabled, onCh
   }
   return <section className="transcript-editor" aria-label="Source-linked manual captions">
     <h3>Source-linked manual captions</h3>
-    <p className="fine">Explicit timings and source locations, not automatic speech recognition. The film remains silent. Saving a new revision requires a new render plan and approval.</p>
+    <p className="fine">Explicit timings and source locations, not automatic speech recognition or forced alignment. Narration mode is selected separately. Saving a new revision requires a new render plan and approval.</p>
     {draft === null ? <>
       <p>{segments.length ? `${segments.length} manually timed segments` : 'No manual segments. Captions currently use an estimated timing from the narration text.'}</p>
       <ol>{segments.map(segment => <li key={segment.id}><strong>{segment.start.toFixed(3)}–{segment.end.toFixed(3)} s</strong> {segment.text}

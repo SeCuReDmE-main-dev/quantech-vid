@@ -39,3 +39,9 @@ The initial INT8 model and voice files total 142,333,725 bytes. The initial isol
 On 2026-09-07 UTC the isolated worker produced a stock English synthetic narration with exactly `CPUExecutionProvider`. The verified WAV is mono PCM16, 24,000 Hz, 256,976 frames, 513,996 bytes (10.707 seconds). SHA-256: `7a5fcebc196e478e9433b655e4434a05b8f3672c2fce5470256e5f50616b43b0`.
 
 Wall time was 62.3 seconds including pre/post integrity checks; that is not a pure inference benchmark. The resource binding was `d35b76d1b6158b84d1b90180e8e45f13d4da6f77434fdb6992a629285a09a2f0`. Peak process memory and perceptual pronunciation quality were not measured in this run. This proves the isolated pilot, not signed studio integration, an OS network sandbox, French qualification or a redistributable installer.
+
+### Repeated run and local resource measurement
+
+A second successful synthetic run produced the same 10.707-second duration in 91.038 seconds, including integrity checks (end-to-end real-time factor 8.50). The observed worker's Windows peak working set was 1,002,774,528 bytes. The process-tree working-set aggregate sampled every 500 ms reached 1,033,342,976 bytes. Polling may miss a short-lived child; these values are not private-memory accounting or a pure inference benchmark.
+
+The installed directory occupied 672,043,983 bytes including the preserved rejected INT8 model. The second WAV had different sample bytes, so bitwise deterministic synthesis is not claimed. Perceptual quality and bundled redistribution remain unqualified; this measurement does not grant a render authorization.

@@ -255,7 +255,7 @@ def test_real_four_second_render_uses_exact_manual_cues_and_receipts_sidecar(tmp
         created_at=now_iso(), updated_at=now_iso(),
     )
     plan = SimpleNamespace(
-        id=job.plan_id, locale="en", profile="square",
+        id=job.plan_id, locale="en", profile="square", narration_mode="silent",
         limits={"max_duration_seconds": 10, "max_output_bytes": 20_000_000},
         provider_resource_modes={},
     )
@@ -326,7 +326,7 @@ def test_locale_without_segments_has_no_transcript_provenance_receipt(tmp_path: 
         created_at=now_iso(), updated_at=now_iso(),
     )
     plan = SimpleNamespace(
-        id=job.plan_id, locale="en", profile="square",
+        id=job.plan_id, locale="en", profile="square", narration_mode="silent",
         limits={"max_duration_seconds": 10, "max_output_bytes": 2_000_000},
         provider_resource_modes={},
     )

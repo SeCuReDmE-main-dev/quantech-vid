@@ -64,7 +64,7 @@ class StageSceneChangesInput(ProjectRevisionInput):
 class StageRenderInput(ProjectRevisionInput):
     locale: Literal["fr", "en"]
     profile: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
-    narration_mode: Literal["silent"] = "silent"
+    narration_mode: Literal["silent", "local_kokoro_cpu"] = "silent"
     max_duration_seconds: float = Field(default=600, gt=0, le=600)
     max_output_bytes: int = Field(default=500_000_000, ge=1_000_000, le=2_000_000_000)
 
@@ -130,7 +130,7 @@ TOOL_DEFINITIONS = (
                    StageStoryboardInput, True, True),
     ToolDefinition("quantech_stage_scene_changes", "Return proposed scene patches without applying or approving them.",
                    StageSceneChangesInput, True, True),
-    ToolDefinition("quantech_stage_render", "Prepare an immutable, bounded silent-render plan; does not authorize production.",
+    ToolDefinition("quantech_stage_render", "Prepare an immutable bounded render plan; local CPU narration remains explicit and does not authorize production.",
                    StageRenderInput, False, True),
     ToolDefinition("quantech_run_approved_render", "Queue only a matching server-approved plan with an idempotency key; cannot mint approval.",
                    RunApprovedRenderInput, False, True),

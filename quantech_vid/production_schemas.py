@@ -181,7 +181,7 @@ class PrepareRenderPlanRequest(ClosedModel):
     revision: int = Field(ge=1)
     locale: Literal["fr", "en"]
     profile: str
-    narration_mode: Literal["silent"] = "silent"
+    narration_mode: Literal["silent", "local_kokoro_cpu"] = "silent"
     max_duration_seconds: float = Field(default=600, gt=0, le=600)
     max_output_bytes: int = Field(default=500_000_000, ge=1_000_000, le=2_000_000_000)
 
@@ -197,7 +197,7 @@ class RenderPlan(ClosedModel):
     )
     locale: Literal["fr", "en"]
     profile: str
-    narration_mode: Literal["silent"]
+    narration_mode: Literal["silent", "local_kokoro_cpu"]
     provider_resource_modes: dict[str, str]
     limits: dict[str, int | float]
     plan_hash: str
