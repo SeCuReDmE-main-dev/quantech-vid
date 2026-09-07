@@ -15,7 +15,9 @@ export function SourceMetadata({ source }: { source: SourceAsset }) {
             ? 'Bounded literal-text excerpt to PNG. Not a conversion of the full manuscript.'
             : original.transformation === 'glb-four-view-png-v1'
               ? 'Four fixed views of a plain GLB model. Static PNG, not an animated or editable imported 3D scene. Original retained separately.'
-              : 'RGB PNG derivative. Original image retained separately.'}</dd></>
+              : original.transformation === 'pcm16-waveform-png-v1'
+                ? 'Deterministic waveform PNG. Original WAV retained; this image neither plays audio nor verifies speech.'
+                : 'RGB PNG derivative. Original image retained separately.'}</dd></>
           : <><dt>Original-file linkage</dt><dd>No structured original descriptor for this source. Do not infer one from its type or a provenance note.</dd></>}
         <dt>Source declaration</dt><dd>{source.provenance.origin}</dd>
         <dt>Rights reference</dt><dd>{source.rights.reference}</dd>

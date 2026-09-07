@@ -100,7 +100,7 @@ it('blocks execution during a caption draft, then invalidates approval on apply 
   fireEvent.change(screen.getByLabelText('Source location 1'), { target: { value: 'paragraph 1' } });
   fireEvent.click(screen.getByRole('button', { name: 'Apply manual captions' }));
   expect(screen.queryByText('Review this exact plan')).toBeNull();
-  expect(screen.getByText('1 manually timed segments')).toBeTruthy();
+  expect(screen.getByText('1 operator-edited timed segments')).toBeTruthy();
   expect(api.run).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Edit manual captions' }));
   fireEvent.click(screen.getByRole('button', { name: 'Remove caption 1' }));

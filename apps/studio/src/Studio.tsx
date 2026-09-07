@@ -56,6 +56,7 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
   const [claimEditing, setClaimEditing] = useState(false);
   const [visualEditing, setVisualEditing] = useState(false);
   const [transcriptEditing, setTranscriptEditing] = useState(false);
+  const [asrBusy, setAsrBusy] = useState(false);
   const [uncertainTool, setUncertainTool] = useState<{ tool: ToolName; argumentsValue: Record<string, unknown> } | null>(null);
   const bridge = useRef<WebMCPBridge | null>(null);
   const busyRef = useRef(false);
@@ -68,11 +69,11 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
   const dirty = !!document && (!revision || JSON.stringify(document) !== JSON.stringify(revision.document));
   const activeJob = job?.status === 'queued' || job?.status === 'running';
   const captionReceipt = job?.receipts.find(receipt => receipt.role === 'captions-vtt' && receipt.media_type === 'text/vtt' && receipt.size <= 1_000_000);
-  const workLocked = !!busy || !!activeJob || uncertain || toolExecuting;
+  const workLocked = !!busy || !!activeJob || uncertain || toolExecuting || asrBusy;
   const frozen = workLocked || claimEditing || visualEditing || transcriptEditing;
   const toolSnapshot = useRef({ projectId: revision?.project_id ?? null, revision: revision?.revision ?? null, dirty, busy: false });
   toolSnapshot.current = { projectId: revision?.project_id ?? null, revision: revision?.revision ?? null, dirty: dirty || claimEditing || visualEditing || transcriptEditing,
-    busy: busyRef.current || uncertain };
+    busy: busyRef.current || uncertain || asrBusy };
 
   useEffect(() => { let live = true; api.health().then(value => { if (live) setHealth(value); })
     .catch(() => { if (live) setMessage('The local server is not reachable. Your existing draft is still available.'); });
@@ -222,8 +223,9 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
       <aside className="panel sources" aria-labelledby="sources-title"><p className="eyebrow">01 · SOURCES</p><h2 id="sources-title">The material</h2>
         <p>Only content you explicitly admit belongs to this project.</p>
         <button className="primary" disabled={!paired || frozen} onClick={() => void perform('Creating a local sample', async () => adoptSource(await api.sample()))}>Create a synthetic sample</button>
-        <label className="unavailable">Select a local file <input type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.md,.markdown,.glb" disabled={!paired || frozen} aria-describedby="import-status" onChange={e => setChosenFile(e.target.files?.[0] ?? null)} /></label>
-        <p id="import-status" className="fine">PNG, JPEG, WebP or UTF-8 text/Markdown, up to 50 MB (text: 200,000 characters). Selection alone sends nothing. The original is preserved; its visual excerpt is bounded. Markdown stays literal: no HTML execution or linked images are fetched. Audio, video and PDF imports are not qualified yet.</p>
+        <label className="unavailable">Select a local file <input type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.md,.markdown,.glb,.wav" disabled={!paired || frozen} aria-describedby="import-status" onChange={e => setChosenFile(e.target.files?.[0] ?? null)} /></label>
+        <p id="import-status" className="fine">PNG, JPEG, WebP or UTF-8 text/Markdown, up to 50 MB (text: 200,000 characters). Selection alone sends nothing. The original is preserved; its visual excerpt is bounded. Markdown stays literal: no HTML execution or linked images are fetched. Video and PDF imports are not qualified yet.</p>
+        <p className="fine">WAV: canonical PCM16 mono 16 kHz, up to 300 seconds. Admission creates a waveform image, not a narration track. Transcription is a separate experimental local action requiring review.</p>
         <p className="fine">Plain GLB geometry: up to 20 MB, converted locally into four fixed views after admission (front, right, back, left, in reading order). No textures, external resources, animations, skins or VRM. This is a static visual source, not an editable imported 3D scene. Admission does not approve a video render.</p>
         {chosenFile && <form onSubmit={e => { e.preventDefault(); void perform('Importing the selected file', async () => { const result = await api.upload(chosenFile, rightsBasis, rightsReference); adoptSource(result.asset); setChosenFile(null); setRightsReference(''); }); }}>
           <p className="fine">{chosenFile.name} · {(chosenFile.size / 1024).toFixed(1)} KB</p>
@@ -316,6 +318,8 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
         {!document && <div className="empty">Scene order and timing become visible after you admit a source.</div>}
         {document && <label>Narration / caption text<textarea rows={3} maxLength={8000} value={document.tracks.find(t => t.locale === 'en')?.narration ?? ''} disabled={frozen} onChange={e => change({ ...document, tracks: document.tracks.map(t => t.locale === 'en' ? { ...t, narration: e.target.value } : t) })} /><span className="fine">Stored for editing. Select the narration engine below; silent is the default and no cloud voice is requested.</span></label>}
         {document && <TranscriptEditor key={document.slug} segments={document.tracks.find(t => t.locale === 'en')?.segments ?? []}
+          asr={paired && revision ? { api, revision, sources, configured: health?.capabilities.experimental_local_asr_configured === true,
+            disabled: frozen || dirty, onPendingChange: setAsrBusy } : undefined}
           duration={document.scenes.reduce((sum, scene) => sum + scene.duration, 0)} sourceIds={document.sources}
           disabled={workLocked || claimEditing || visualEditing} onEditingChange={setTranscriptEditing} onChange={segments => {
             if (history && !workLocked) {

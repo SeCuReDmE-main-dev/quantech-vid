@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -25,12 +26,16 @@ from starlette.concurrency import run_in_threadpool
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from .config import Settings
+from .audio_sources import AudioSourceError, inspect_asr_pcm_source, waveform_preview_png
+from .asr_proposals import AsrProposalError, build_asr_proposal
+from .local_asr import LocalAsrError, LocalAsrPilot, LocalAsrResources
 from .local_voice import LocalVoiceError, LocalVoicePilot, LocalVoiceResources
 from .model3d import Model3DError
 from .model3d_poster import Model3DPosterError, render_model3d_poster
 from .engines import CodexEngineAdapter, CopilotEngineAdapter, AntigravityEngineAdapter
 from .engines.models import EngineConnection
-from .production_schemas import (AdmitSourceRequest, AuthorizePlanRequest, CreateProjectRequest,
+from .production_schemas import (AdmitSourceRequest, AsrProposal, AsrProposalRequest,
+    AuthorizePlanRequest, CreateProjectRequest,
     MigrateV1Request, OutputProfileV2, PrepareRenderPlanRequest, RegisterAgentRequest, ReviseProjectRequest,
     RunApprovedRenderRequest, SceneProjectV2, SceneV2, SourceAsset, SourceProvenance,
     OriginalSourceDescriptor,
@@ -124,6 +129,10 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
     application = FastAPI(title="QuaNTecH-ViD Studio", version="2.1.0")
     application.add_middleware(LoopbackBoundary, config=config)
     application.state.production_store, application.state.production_service = store, service
+    asr_root = runtime.local_asr_runtime_root
+    application.state.local_asr_factory = (None if asr_root is None else
+        lambda: LocalAsrPilot(LocalAsrResources.discover(asr_root)))
+    asr_lock = Lock()
 
     @application.exception_handler(ContractError)
     async def contract_error(_: Request, exc: ContractError) -> JSONResponse:
@@ -227,7 +236,8 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         return {"status": "ok", "version": application.version, "loopback": True,
             "capabilities": {"approved_silent_render": render_ready, "network_import": False,
                              "legacy_render": False, "paid_narration": False,
-                             "experimental_local_voice_configured": local_voice is not None}}
+                             "experimental_local_voice_configured": local_voice is not None,
+                             "experimental_local_asr_configured": asr_root is not None}}
 
     @application.post("/api/v2/pair", status_code=201)
     def pair(payload: dict) -> dict:
@@ -295,7 +305,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 ):
             raise ContractError("INVALID_UPLOAD_METADATA", 422)
         suffix = Path(filename).suffix.lower()
-        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".txt", ".md", ".markdown", ".glb"}:
+        if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".txt", ".md", ".markdown", ".glb", ".wav"}:
             raise ContractError("UNSUPPORTED_SOURCE_MEDIA", 422)
         upload_id = uuid4().hex
         staging = runtime.data_dir / "tmp" / f"upload-{upload_id}.part"
@@ -323,6 +333,28 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 original_media_type = "model/gltf-binary"
                 transformation = "glb-four-view-png-v1"
                 derivation_note = f"Static four-view GLB derivative; renderer {binding}. No editable model or avatar permission implied."
+            elif suffix == ".wav":
+                try:
+                    audio_payload = original.read_bytes()
+                    audio = inspect_asr_pcm_source(audio_payload)
+                    preview = waveform_preview_png(audio_payload)
+                except AudioSourceError as exc:
+                    status = 413 if exc.args and exc.args[0] in {
+                        "AUDIO_SOURCE_SIZE_REJECTED", "AUDIO_SOURCE_DURATION_REJECTED",
+                    } else 422
+                    raise ContractError(str(exc), status) from exc
+                except OSError as exc:
+                    raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
+                if not hmac.compare_digest(audio.sha256, digest.hexdigest()):
+                    raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+                derived = runtime.data_dir / "tmp" / f"derived-{upload_id}.png"
+                try:
+                    derived.write_bytes(preview)
+                except OSError as exc:
+                    raise ContractError("SOURCE_DERIVATION_FAILED", 503) from exc
+                original_media_type = "audio/wav"
+                transformation = "pcm16-waveform-png-v1"
+                derivation_note = "Deterministic PCM waveform PNG; no transcription, speaker identity, or voice profile implied."
             elif suffix in {".txt", ".md", ".markdown"}:
                 try: text = original.read_text(encoding="utf-8")
                 except UnicodeDecodeError as exc: raise ContractError("INVALID_UTF8_SOURCE", 422) from exc
@@ -358,6 +390,80 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
             if derived is not None and derived != original: derived.unlink(missing_ok=True)
             if model_job is not None: model_job.cleanup()
             if not admitted: shutil.rmtree(original.parent, ignore_errors=True)
+
+    @application.post("/api/v2/sources/{source_id}/asr-proposals", response_model=AsrProposal)
+    async def create_asr_proposal(
+        source_id: str, payload: AsrProposalRequest,
+        principal: dict = Depends(human),
+    ) -> AsrProposal:
+        if not re.fullmatch(r"src_[a-f0-9]{32}", source_id):
+            raise ContractError("SOURCE_NOT_FOUND", 404)
+        revision = store.get_revision(principal, payload.project_id, payload.revision)
+        if source_id not in revision.document.sources:
+            raise ContractError("SOURCE_NOT_FOUND", 404)
+        original_path, descriptor, asset_sha256 = store.audio_original_for_analysis(
+            principal, source_id
+        )
+        if (not hmac.compare_digest(asset_sha256, payload.expected_asset_sha256)
+                or not hmac.compare_digest(descriptor.sha256, payload.expected_original_sha256)):
+            raise ContractError("LOCAL_ASR_SOURCE_INTEGRITY_FAILED", 409)
+        try:
+            audio_payload = original_path.read_bytes()
+            audio = inspect_asr_pcm_source(audio_payload)
+        except AudioSourceError as exc:
+            raise ContractError("LOCAL_ASR_AUDIO_INVALID", 422) from exc
+        except OSError as exc:
+            raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
+        if not hmac.compare_digest(audio.sha256, descriptor.sha256):
+            raise ContractError("LOCAL_ASR_SOURCE_INTEGRITY_FAILED", 409)
+        if audio.exact_zero_energy:
+            raise ContractError("LOCAL_ASR_EXACT_ZERO_ENERGY_REJECTED", 422)
+        timeline = sum(scene.duration for scene in revision.document.scenes)
+        if audio.duration > timeline:
+            raise ContractError("LOCAL_ASR_AUDIO_EXCEEDS_PROJECT_TIMELINE", 422)
+        factory = application.state.local_asr_factory
+        if factory is None:
+            raise ContractError("LOCAL_ASR_UNAVAILABLE", 503)
+        if not asr_lock.acquire(blocking=False):
+            raise ContractError("LOCAL_ASR_BUSY", 429)
+        try:
+            try:
+                pilot = await run_in_threadpool(factory)
+                with tempfile.TemporaryDirectory(prefix="asr-proposal-", dir=runtime.data_dir / "tmp") as job_dir:
+                    result = await run_in_threadpool(
+                        pilot.transcribe, source_id, descriptor.sha256, original_path,
+                        Path(job_dir), timeout=180, cancelled=lambda: False,
+                    )
+                return build_asr_proposal(
+                    result, revision=revision, source_asset_id=source_id,
+                    asset_sha256=asset_sha256,
+                    original_audio_sha256=descriptor.sha256,
+                )
+            except AsrProposalError as exc:
+                raise ContractError("LOCAL_ASR_PROPOSAL_INVALID", 502) from exc
+            except LocalAsrError as exc:
+                statuses = {
+                    "LOCAL_ASR_SOURCE_INVALID": 409,
+                    "LOCAL_ASR_SOURCE_INTEGRITY_FAILED": 409,
+                    "LOCAL_ASR_AUDIO_INVALID": 422,
+                    "LOCAL_ASR_RESOURCE_MISSING": 503,
+                    "LOCAL_ASR_RESOURCE_INVALID": 503,
+                    "LOCAL_ASR_RESOURCE_LINK_REJECTED": 503,
+                    "LOCAL_ASR_RESOURCE_OUTSIDE_ROOT": 503,
+                    "LOCAL_ASR_RESOURCE_INTEGRITY_FAILED": 409,
+                    "LOCAL_ASR_MODEL_MANIFEST_INVALID": 503,
+                    "LOCAL_ASR_RUNTIME_INVALID": 503,
+                    "LOCAL_ASR_CPU_REQUIRED": 503,
+                    "LOCAL_ASR_PROPOSAL_INVALID": 502,
+                    "LOCAL_ASR_CANCELLED": 409,
+                    "LOCAL_ASR_TRANSCRIPTION_TIMEOUT": 504,
+                    "LOCAL_ASR_TRANSCRIPTION_FAILED": 503,
+                    "LOCAL_ASR_BINDING_MISMATCH": 409,
+                }
+                code = exc.code if exc.code in statuses else "LOCAL_ASR_TRANSCRIPTION_FAILED"
+                raise ContractError(code, statuses[code]) from exc
+        finally:
+            asr_lock.release()
 
     @application.post("/api/v2/sources/sample", response_model=SourceAsset, status_code=201)
     def create_sample_source(principal: dict = Depends(human)) -> SourceAsset:

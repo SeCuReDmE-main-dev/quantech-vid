@@ -26,6 +26,7 @@ class Settings:
     tts_voice_en: str
     max_workers: int
     local_voice_runtime_root: Path | None = None
+    local_asr_runtime_root: Path | None = None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -36,6 +37,7 @@ class Settings:
         raw_roots = os.getenv("QUANTECH_VID_ALLOWED_ASSET_ROOTS", str(root))
         roots = tuple(_resolved(item) for item in raw_roots.split(";") if item.strip())
         local_voice_root = os.getenv("QUANTECH_VID_LOCAL_VOICE_ROOT")
+        local_asr_root = os.getenv("QUANTECH_VID_LOCAL_ASR_ROOT")
         settings = cls(
             root=root,
             data_dir=data_dir,
@@ -47,6 +49,7 @@ class Settings:
             tts_voice_en=os.getenv("QUANTECH_VID_OPENAI_TTS_VOICE_EN", "alloy"),
             max_workers=max(1, int(os.getenv("QUANTECH_VID_MAX_CONCURRENT_RENDERS", "1"))),
             local_voice_runtime_root=(_resolved(local_voice_root) if local_voice_root else None),
+            local_asr_runtime_root=(_resolved(local_asr_root) if local_asr_root else None),
         )
         settings.ensure_directories()
         return settings

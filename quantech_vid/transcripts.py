@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class TranscriptSegment(BaseModel):
-    """A human-authored, source-linked caption interval.
+    """An operator-authored or reviewed, source-linked caption interval.
 
     Text is preserved verbatim in the canonical project. Subtitle serialization uses a
     separately escaped presentation value so caption syntax cannot create extra cues.
@@ -99,13 +99,14 @@ def build_transcript_sidecar(
             "source_locator": segment.source_locator,
         })
     return {
-        "schema_version": "quantech.transcript-provenance.v1",
+        "schema_version": "quantech.transcript-provenance.v2",
         "project": {"id": project_id, "revision": revision, "sha256": project_hash},
         "locale": locale,
-        "method": "manual",
+        "method": "operator-authored-or-reviewed",
         "segments": entries,
         "limitations": {
-            "automatic_speech_recognition_performed": False,
+            "automatic_transcription_during_export": False,
+            "upstream_transcription_method": "not_attested",
             "independent_verification": False,
         },
     }

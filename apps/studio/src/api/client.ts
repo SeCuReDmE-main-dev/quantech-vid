@@ -4,8 +4,17 @@ import { sourceSchema, revisionSchema, projectSummarySchema, planSchema, jobSche
 import { catalogSchema, toolResultSchema, type ToolName } from '../tools/contracts';
 import type { SourceAsset, NarrationMode } from '../contracts';
 import { engineStatusSchema, type EngineProvider } from './engine-contracts';
+import { asrProposalSchema } from './asr-contracts';
+import { validSegmentSequence, type ProjectRevision } from '../contracts';
 
 const messages: Record<string, string> = {
+  LOCAL_ASR_UNAVAILABLE: 'The local transcription runtime is not configured. Manual captions remain available; no cloud fallback was requested.',
+  LOCAL_ASR_BUSY: 'A local transcription is already running. No additional request was queued.',
+  LOCAL_ASR_EXACT_ZERO_ENERGY_REJECTED: 'The selected audio contains only digital silence. No transcription model was invoked. This is not a speech detector.',
+  LOCAL_ASR_AUDIO_EXCEEDS_PROJECT_TIMELINE: 'The audio is longer than this film. Adjust and save the timeline explicitly; no audio or caption was silently truncated.',
+  LOCAL_ASR_TRANSCRIPTION_TIMEOUT: 'Local transcription exceeded its time limit. Do not retry automatically; your captions remain unchanged.',
+  LOCAL_ASR_PROPOSAL_INVALID: 'The transcription proposal failed validation. Keep your manual captions or inspect the original source.',
+  AUDIO_SOURCE_FORMAT_REJECTED: 'Select a canonical WAV PCM16, mono, 16 kHz file. No automatic conversion is performed.',
   LOCAL_VOICE_UNAVAILABLE: 'The server has no qualified local voice runtime. Choose silent rendering or ask the operator to qualify the isolated CPU runtime. No cloud fallback was requested.',
   LOCAL_VOICE_LOCALE_UNSUPPORTED: 'This experimental stock voice supports English only.',
   LOCAL_VOICE_VOICE_NOT_ALLOWED: 'Only the stock af_heart voice is allowed. Personal and cloned voices are not supported.',
@@ -33,9 +42,9 @@ const messages: Record<string, string> = {
   BODY_TOO_LARGE: 'This input exceeds the local server limit. Use a smaller source.',
   ORIGIN_REJECTED: 'The studio address does not match the server’s configured origin.',
   HOST_REJECTED: 'The server rejected this host. Open the configured loopback studio address.',
-  UNSUPPORTED_SOURCE_MEDIA: 'Select a nonempty PNG, JPEG, WebP or UTF-8 text/Markdown file under 50 MB.',
+  UNSUPPORTED_SOURCE_MEDIA: 'Select one of the supported image, text, plain GLB or PCM WAV formats shown beside the file picker.',
   INVALID_UTF8_SOURCE: 'This text or Markdown file is not valid UTF-8. Save a UTF-8 copy and select that copy.',
-  SOURCE_TOO_LARGE: 'This text or Markdown exceeds the 200,000-character limit. Select a smaller, explicitly chosen excerpt.',
+  SOURCE_TOO_LARGE: 'The source exceeds its format limit. Use a smaller explicitly selected source; text is limited to 200,000 characters and GLB to 20 MB.',
   ARTIFACT_INTEGRITY_FAILED: 'The file does not match its receipt. It was not opened. Inspect the existing job before retrying.',
   TOOL_CONTEXT_CHANGED: 'The selected project or revision changed. Save your work and inspect the current project first.',
   TOOL_SESSION_CLOSED: 'Agent tools are disconnected. Enable them again from the visible studio controls.',
@@ -99,6 +108,22 @@ export class StudioAPI {
   }
   private operator() { if (!this.human) throw new StudioError('AUTHENTICATION_REQUIRED'); return this.human; }
   health() { return this.request('/health', healthSchema); }
+  async asrProposal(revision: ProjectRevision, source: SourceAsset, signal?: AbortSignal) {
+    const original = source.provenance.original;
+    if (original?.media_type !== 'audio/wav' || !revision.document.sources.includes(source.id)
+        || !source.allowed_operations.includes('analyze')) throw new StudioError('LOCAL_ASR_SOURCE_NOT_AUDIO');
+    const result = await this.request(`/sources/${encodeURIComponent(source.id)}/asr-proposals`, asrProposalSchema,
+      'POST', { project_id: revision.project_id, revision: revision.revision, locale: 'en',
+        expected_asset_sha256: source.sha256, expected_original_sha256: original.sha256,
+        acknowledge_machine_proposal_only: true }, this.operator(), undefined, signal, 240000);
+    const duration = revision.document.scenes.reduce((total, scene) => total + scene.duration, 0);
+    if (result.project_id !== revision.project_id || result.revision !== revision.revision
+        || result.project_hash !== revision.document_hash || result.source_asset_id !== source.id
+        || result.asset_sha256 !== source.sha256 || result.original_audio_sha256 !== original.sha256
+        || result.audio_duration_ms > duration * 1000
+        || !validSegmentSequence(result.segments, [source.id], duration)) throw new StudioError('LOCAL_ASR_PROPOSAL_INVALID');
+    return result;
+  }
   async inspectEngine(provider: EngineProvider) {
     const result = await this.request(`/engines/${encodeURIComponent(provider)}/inspect`,engineStatusSchema,'POST',{},this.operator());
     if(result.connection.provider!==provider)throw new StudioError('INVALID_RESPONSE');
@@ -181,7 +206,7 @@ export class StudioAPI {
   }
   projects() { return this.request('/projects', z.object({ projects: z.array(projectSummarySchema) }), 'GET', undefined, this.operator()); }
   async upload(file: File, basis: 'owned' | 'licensed' | 'public-domain' | 'permission', reference: string) {
-    if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt|md|markdown|glb)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
+    if (!file.size || file.size > 50_000_000 || !/\.(png|jpe?g|webp|txt|md|markdown|glb|wav)$/i.test(file.name)) throw new StudioError('UNSUPPORTED_SOURCE_MEDIA');
     if (/\.glb$/i.test(file.name) && file.size > 20_000_000) throw new StudioError('SOURCE_TOO_LARGE');
     const human = this.operator();
     let response: Response;

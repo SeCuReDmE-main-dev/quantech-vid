@@ -26,8 +26,8 @@ class OriginalSourceDescriptor(ClosedModel):
     name: str = Field(min_length=1, max_length=180)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     size: int = Field(ge=1, le=50_000_000)
-    media_type: Literal["image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown", "model/gltf-binary"]
-    transformation: Literal["literal-text-preview-v1", "rgb-png-v1", "glb-four-view-png-v1"]
+    media_type: Literal["image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown", "model/gltf-binary", "audio/wav"]
+    transformation: Literal["literal-text-preview-v1", "rgb-png-v1", "glb-four-view-png-v1", "pcm16-waveform-png-v1"]
 
     @field_validator("name")
     @classmethod
@@ -57,6 +57,41 @@ class SourceAsset(ClosedModel):
     rights: SourceRights
     allowed_operations: list[Literal["render", "analyze"]]
     created_at: str
+
+
+class AsrProposalRequest(ClosedModel):
+    project_id: str = Field(pattern=r"^prj_[a-f0-9]{32}$")
+    revision: int = Field(ge=1)
+    locale: Literal["en"]
+    expected_asset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    expected_original_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    acknowledge_machine_proposal_only: Literal[True]
+
+
+class AsrProposalLimitations(ClosedModel):
+    machine_proposal_only: Literal[True] = True
+    human_review_required: Literal[True] = True
+    speaker_identity_inferred: Literal[False] = False
+    vad_performed: Literal[False] = False
+    exact_zero_energy_rejected: Literal[True] = True
+    independent_verification: Literal[False] = False
+
+
+class AsrProposal(ClosedModel):
+    schema_version: Literal["quantech.asr-proposal.v1"]
+    proposal_id: str = Field(pattern=r"^asrp_[a-f0-9]{32}$")
+    effect: Literal["proposal_only"]
+    project_id: str = Field(pattern=r"^prj_[a-f0-9]{32}$")
+    revision: int = Field(ge=1)
+    project_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    locale: Literal["en"]
+    source_asset_id: SourceId
+    asset_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    original_audio_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    audio_duration_ms: int = Field(ge=1, le=300_000)
+    resource_binding_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    segments: list[TranscriptSegment] = Field(max_length=128)
+    limitations: AsrProposalLimitations
 
 
 class AdmitSourceRequest(ClosedModel):

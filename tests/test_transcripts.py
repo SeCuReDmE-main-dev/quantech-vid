@@ -282,9 +282,11 @@ def test_real_four_second_render_uses_exact_manual_cues_and_receipts_sidecar(tmp
     assert sidecar["project"] == {
         "id": revision.project_id, "revision": 2, "sha256": revision.document_hash,
     }
-    assert sidecar["locale"] == "en" and sidecar["method"] == "manual"
+    assert sidecar["locale"] == "en" and sidecar["method"] == "operator-authored-or-reviewed"
+    assert sidecar["schema_version"] == "quantech.transcript-provenance.v2"
     assert sidecar["limitations"] == {
-        "automatic_speech_recognition_performed": False,
+        "automatic_transcription_during_export": False,
+        "upstream_transcription_method": "not_attested",
         "independent_verification": False,
     }
     assert [entry["source_sha256"] for entry in sidecar["segments"]] == [source_hash, source_hash]

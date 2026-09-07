@@ -4,7 +4,12 @@ import wave
 
 import pytest
 
-from quantech_vid.audio_sources import AudioSourceError, inspect_pcm_source
+from PIL import Image
+
+from quantech_vid.audio_sources import (
+    AudioSourceError, inspect_asr_pcm_source, inspect_pcm_source,
+    waveform_preview_png,
+)
 
 
 def fixture(*, rate=16000, channels=1, width=2, frames=160):
@@ -43,3 +48,22 @@ def test_exact_five_minute_limit_and_no_hidden_rights_or_model_action():
     assert not hasattr(accepted, 'allowed_operations')
     with pytest.raises(AudioSourceError, match='AUDIO_SOURCE_DURATION_REJECTED'):
         inspect_pcm_source(fixture(rate=8000, frames=8000 * 300 + 1))
+
+
+def test_asr_profile_is_exact_canonical_mono_16khz_and_reports_zero_energy():
+    payload = fixture(frames=160)
+    source = inspect_asr_pcm_source(payload)
+    assert source.exact_zero_energy is True and source.sample_rate == 16000
+    nonzero = bytearray(payload); nonzero[44] = 1
+    assert inspect_asr_pcm_source(bytes(nonzero)).exact_zero_energy is False
+    for invalid in (fixture(rate=8000), fixture(channels=2), payload[:36] + b'JUNK' + payload[40:]):
+        with pytest.raises(AudioSourceError, match='AUDIO_SOURCE_FORMAT_REJECTED'):
+            inspect_asr_pcm_source(invalid)
+
+
+def test_waveform_preview_is_deterministic_bounded_and_decodable():
+    payload = fixture(frames=3200)
+    first = waveform_preview_png(payload)
+    assert first == waveform_preview_png(payload) and len(first) < 100_000
+    with Image.open(io.BytesIO(first)) as image:
+        assert image.format == 'PNG' and image.mode == 'RGB' and image.size == (1280, 320)

@@ -7,8 +7,8 @@ const localized = (maximum: number) => z.object({ en: z.string().max(maximum), f
 export const sourceOriginalSchema = z.object({
   name: z.string().min(1).max(180).refine(name => !/[\\/]/.test(name) && name !== '.' && name !== '..'), sha256: hash,
   size: z.number().int().positive().max(50_000_000),
-  media_type: z.enum(['text/plain', 'text/markdown', 'image/png', 'image/jpeg', 'image/webp', 'model/gltf-binary']),
-  transformation: z.enum(['literal-text-preview-v1', 'rgb-png-v1', 'glb-four-view-png-v1']),
+  media_type: z.enum(['text/plain', 'text/markdown', 'image/png', 'image/jpeg', 'image/webp', 'model/gltf-binary', 'audio/wav']),
+  transformation: z.enum(['literal-text-preview-v1', 'rgb-png-v1', 'glb-four-view-png-v1', 'pcm16-waveform-png-v1']),
 }).strict();
 export const sourceSchema = z.object({
   id, sha256: hash, media_type: z.string(), size: z.number().int().nonnegative(),

@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { transcriptSegmentSchema, validSegmentSequence, type TranscriptSegment } from './contracts';
+import { AsrProposalPanel, type AsrContext } from './AsrProposalPanel';
 
-export function TranscriptEditor({ segments, duration, sourceIds, disabled, onChange, onEditingChange }: {
+export function TranscriptEditor({ segments, duration, sourceIds, disabled, onChange, onEditingChange, asr }: {
   segments: TranscriptSegment[]; duration: number; sourceIds: string[]; disabled: boolean;
   onChange: (segments: TranscriptSegment[]) => void; onEditingChange: (editing: boolean) => void;
+  asr?: AsrContext;
 }) {
   const [draft, setDraft] = useState<TranscriptSegment[] | null>(null), [error, setError] = useState('');
   function close() { setDraft(null); setError(''); onEditingChange(false); }
@@ -12,12 +14,14 @@ export function TranscriptEditor({ segments, duration, sourceIds, disabled, onCh
   }
   return <section className="transcript-editor" aria-label="Source-linked manual captions">
     <h3>Source-linked manual captions</h3>
-    <p className="fine">Explicit timings and source locations, not automatic speech recognition or forced alignment. Narration mode is selected separately. Saving a new revision requires a new render plan and approval.</p>
+    <p className="fine">Human-authored or reviewed timings and source locations; not independently verified or forced-aligned. Narration mode is separate. Saving a new revision requires a new render plan and approval.</p>
     {draft === null ? <>
-      <p>{segments.length ? `${segments.length} manually timed segments` : 'No manual segments. Captions currently use an estimated timing from the narration text.'}</p>
+      <p>{segments.length ? `${segments.length} operator-edited timed segments` : 'No manual segments. Captions currently use an estimated timing from the narration text.'}</p>
       <ol>{segments.map(segment => <li key={segment.id}><strong>{segment.start.toFixed(3)}–{segment.end.toFixed(3)} s</strong> {segment.text}
         <p className="fine">{segment.source_asset_id} · {segment.source_locator}</p></li>)}</ol>
       <button disabled={disabled} onClick={() => { setDraft(segments.map(s => ({...s}))); onEditingChange(true); }}>Edit manual captions</button>
+      {asr && <AsrProposalPanel key={`${asr.revision.project_id}:${asr.revision.revision}`} context={asr}
+        onReview={proposed => { if (!disabled) { setDraft(proposed); setError(''); onEditingChange(true); } }}/>}
     </> : <form aria-label="Edit manual captions" onSubmit={e => {
       e.preventDefault(); if (disabled) return;
       const parsed = transcriptSegmentSchema.array().max(128).safeParse(draft);

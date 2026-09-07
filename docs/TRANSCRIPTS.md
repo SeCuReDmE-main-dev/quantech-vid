@@ -41,10 +41,17 @@ When the rendered locale has segments, production also emits
 `<slug>-<locale>-<profile>-transcript-provenance.json` with receipt role
 `transcript-provenance`. It binds the project ID, revision and canonical hash,
 locale, segment intervals, source IDs, source SHA-256 values, locators, and a hash
-of each original text. It declares `method: manual`,
-`automatic_speech_recognition_performed: false`, and
+of each original text. New sidecars use `quantech.transcript-provenance.v2` and
+declare `method: operator-authored-or-reviewed`,
+`automatic_transcription_during_export: false`,
+`upstream_transcription_method: not_attested`, and
 `independent_verification: false`. It contains no internal paths, session tokens,
 pairing codes, grants, or source bytes.
+
+The export stage serializes reviewed project segments and does not run ASR.
+This does not certify how the operator obtained their text: an earlier machine
+proposal may have been revised. Historical v1 receipts remain unchanged; the
+new wording avoids falsely asserting that no upstream transcription occurred.
 
 Editing segments uses the existing human-only CAS project revision endpoint. As
 with every document edit, a changed canonical hash makes an older plan/grant stale;

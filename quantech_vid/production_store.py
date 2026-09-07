@@ -22,7 +22,7 @@ from .production_schemas import (
 )
 from .local_voice import (LocalVoiceError, LocalVoicePilot, MAX_TEXT_CHARS,
                           PILOT_LANGUAGE, PILOT_VOICE)
-from .store_migrations import allow_glb_originals
+from .store_migrations import allow_supported_originals
 from .scene3d import (MAX_SCENE3D_FRAME_BYTES, MAX_SCENE3D_FRAMES, Scene3DUnavailable,
                       runtime_binding)
 
@@ -126,7 +126,7 @@ class ProductionStore:
                     size INTEGER NOT NULL,
                     media_type TEXT NOT NULL,
                     transformation TEXT NOT NULL CHECK(
-                        transformation IN ('literal-text-preview-v1','rgb-png-v1','glb-four-view-png-v1')
+                        transformation IN ('literal-text-preview-v1','rgb-png-v1','glb-four-view-png-v1','pcm16-waveform-png-v1')
                     ),
                     FOREIGN KEY(source_id) REFERENCES source_assets(id) ON DELETE RESTRICT
                 );
@@ -163,7 +163,7 @@ class ProductionStore:
                 );
                 """
             )
-            allow_glb_originals(db, self.path)
+            allow_supported_originals(db, self.path)
             columns = {item[1] for item in db.execute("PRAGMA table_info(security_state)").fetchall()}
             for name, declaration in (("pairing_expires_at", "TEXT"), ("pairing_failed_attempts", "INTEGER NOT NULL DEFAULT 0")):
                 if name not in columns:
@@ -441,6 +441,32 @@ class ProductionStore:
     def source_analysis(self, actor: dict, source_id: str) -> tuple[bytes, str, str]:
         """Return a verified admitted derivative under analyze rights."""
         return self._verified_source_derivative(actor, source_id, operation="analyze")
+
+    def audio_original_for_analysis(
+        self, actor: dict, source_id: str
+    ) -> tuple[Path, OriginalSourceDescriptor, str]:
+        """Return one verified server-held WAV path under analyze rights."""
+        row = self.source_rows(actor, [source_id], operation="analyze")[0]
+        _, _, derivative_sha256 = self._verified_source_derivative(actor, source_id, "analyze")
+        if not hmac.compare_digest(derivative_sha256, str(row["sha256"])):
+            raise ContractError("LOCAL_ASR_SOURCE_INTEGRITY_FAILED", 409)
+        originals = self._verified_originals([row])
+        if len(originals) != 1:
+            raise ContractError("LOCAL_ASR_SOURCE_NOT_AUDIO", 415)
+        try:
+            provenance = json.loads(row["provenance_json"])
+            descriptor = OriginalSourceDescriptor.model_validate(provenance["original"])
+            original = originals[0]
+            if (descriptor.media_type != "audio/wav"
+                    or descriptor.transformation != "pcm16-waveform-png-v1"
+                    or original["media_type"] != descriptor.media_type
+                    or original["transformation"] != descriptor.transformation):
+                raise ContractError("LOCAL_ASR_SOURCE_NOT_AUDIO", 415)
+            return Path(original["internal_path"]), descriptor, str(row["sha256"])
+        except ContractError:
+            raise
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
 
     def list_sources(self, actor: dict) -> list[SourceAsset]:
         with self._connect() as db:
