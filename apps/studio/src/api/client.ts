@@ -9,6 +9,7 @@ const messages: Record<string, string> = {
   PAIRING_REJECTED: 'This one-time code is invalid, expired, or already used. Create a fresh code in the local server.',
   REVISION_CONFLICT: 'The project changed elsewhere. Reopen its latest revision before saving.',
   SOURCE_INTEGRITY_FAILED: 'A source changed after selection. Select it again and review a new plan.',
+  SOURCE_ORIGINAL_INTEGRITY_FAILED: 'The linked original file is missing or changed. Re-admit a trusted copy and review a new plan. The existing derivative does not replace that proof.',
   HUMAN_APPROVAL_REQUIRED: 'Review and approve this exact plan before running it.',
   APPROVAL_REQUIRED: 'This plan has no active approval. Review it again and approve before retrying; no new render was queued.',
   APPROVAL_INTEGRITY_FAILED: 'The authorization could not be verified. Review a new approval; do not bypass this check.',

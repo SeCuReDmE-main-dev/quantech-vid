@@ -99,6 +99,40 @@ it.each(['fixture.txt', 'fixture.md', 'fixture.markdown'])('does not upload %s m
   expect((screen.getByRole('button', { name: 'Admit this selected file' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
+it('shows original Markdown metadata after explicit admission without saving or rendering', async () => {
+  const original = { name: 'my-source.md', sha256: 'b'.repeat(64), size: 18, media_type: 'text/markdown' as const,
+    transformation: 'literal-text-preview-v1' as const };
+  const linked = { ...source, provenance: { ...source.provenance, original } };
+  const api = fixtureAPI(); vi.spyOn(api, 'upload').mockResolvedValue({ asset: linked, original, derived: true });
+  render(<Studio api={api}/>); await pair();
+  const file = new File(['# Synthetic source'], original.name, { type: original.media_type });
+  fireEvent.change(screen.getByLabelText('Select a local file'), { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText('Rights reference or explanation'), { target: { value: 'Synthetic QA text' } });
+  expect(api.upload).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Admit this selected file' }));
+  await screen.findByText(original.name);
+  expect(screen.getByText(/Original: text\/markdown/)).toBeTruthy();
+  expect(screen.getByText(/Render derivative: image\/png/)).toBeTruthy();
+  expect(api.upload).toHaveBeenCalledWith(file, 'owned', 'Synthetic QA text');
+  expect(api.create).not.toHaveBeenCalled(); expect(api.plan).not.toHaveBeenCalled(); expect(api.run).not.toHaveBeenCalled();
+});
+
+it('reloads server-held source metadata explicitly without changing the project or importing a file', async () => {
+  const original = { name: 'retained-source.markdown', sha256: 'b'.repeat(64), size: 460,
+    media_type: 'text/markdown' as const, transformation: 'literal-text-preview-v1' as const };
+  const api = fixtureAPI(); vi.spyOn(api, 'sources').mockResolvedValue({ sources: [{ ...source,
+    provenance: { ...source.provenance, original } }] }); vi.spyOn(api, 'upload');
+  render(<Studio api={api}/>);
+  expect((screen.getByRole('button', { name: 'Reload admitted source metadata' }) as HTMLButtonElement).disabled).toBe(true);
+  await pair(); expect(api.sources).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Reload admitted source metadata' }));
+  await screen.findByText(original.name);
+  expect(screen.getByText(/Source metadata refreshed/)).toBeTruthy();
+  expect(api.sources).toHaveBeenCalledOnce(); expect(api.upload).not.toHaveBeenCalled();
+  expect(api.create).not.toHaveBeenCalled(); expect(api.plan).not.toHaveBeenCalled(); expect(api.run).not.toHaveBeenCalled();
+  expect((screen.getByRole('button', { name: 'Save project' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
 it('prevents scene navigation from discarding an unapplied detail form and stranding the production lock', async () => {
   render(<Studio api={fixtureAPI()} />); await pair();
   fireEvent.click(screen.getByRole('button', { name: 'Create a synthetic sample' }));

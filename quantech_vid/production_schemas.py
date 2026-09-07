@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .claims import Claim
 from .scene3d import Visual3DConfig
@@ -16,10 +16,31 @@ class ClosedModel(BaseModel):
 SourceId = Annotated[str, Field(pattern=r"^src_[a-f0-9]{32}$")]
 
 
-class SourceProvenance(ClosedModel):
+class DeclaredSourceProvenance(ClosedModel):
     origin: str = Field(min_length=1, max_length=240)
     collected_by: str = Field(min_length=1, max_length=120)
     note: str | None = Field(default=None, max_length=500)
+
+
+class OriginalSourceDescriptor(ClosedModel):
+    name: str = Field(min_length=1, max_length=180)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size: int = Field(ge=1, le=50_000_000)
+    media_type: Literal["image/png", "image/jpeg", "image/webp", "text/plain", "text/markdown"]
+    transformation: Literal["literal-text-preview-v1", "rgb-png-v1"]
+
+    @field_validator("name")
+    @classmethod
+    def filename_only(cls, value: str) -> str:
+        if "/" in value or "\\" in value or value in {".", ".."}:
+            raise ValueError("original name must be a filename")
+        return value
+
+
+class SourceProvenance(DeclaredSourceProvenance):
+    original: OriginalSourceDescriptor | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class SourceRights(ClosedModel):
@@ -40,7 +61,7 @@ class SourceAsset(ClosedModel):
 
 class AdmitSourceRequest(ClosedModel):
     selection_token: str = Field(min_length=16, max_length=200)
-    provenance: SourceProvenance
+    provenance: DeclaredSourceProvenance
     rights: SourceRights
     allowed_operations: list[Literal["render", "analyze"]] = Field(min_length=1)
 
@@ -124,7 +145,7 @@ class CreateProjectRequest(ClosedModel):
 
 
 class MigrateV1Request(ClosedModel):
-    provenance: SourceProvenance
+    provenance: DeclaredSourceProvenance
     rights: SourceRights
 
 
@@ -171,6 +192,9 @@ class RenderPlan(ClosedModel):
     revision: int
     project_hash: str
     asset_hashes: dict[str, str]
+    original_hashes: dict[str, str] = Field(
+        default_factory=dict, max_length=128, exclude_if=lambda value: not value
+    )
     locale: Literal["fr", "en"]
     profile: str
     narration_mode: Literal["silent"]

@@ -9,6 +9,7 @@ import { SceneClaims } from './SceneClaims';
 import { Scene3DLabels } from './Scene3DLabels';
 import { TranscriptEditor } from './TranscriptEditor';
 import { VerifiedVideoPreview } from './VerifiedVideoPreview';
+import { SourceMetadata } from './SourceMetadata';
 
 const Scene3DPreview = lazy(() => import('./Scene3DPreview'));
 
@@ -219,7 +220,11 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
           <label>Rights reference or explanation<input required maxLength={500} value={rightsReference} onChange={e => setRightsReference(e.target.value)} /></label>
           <button disabled={frozen || !rightsReference.trim()}>Admit this selected file</button>
         </form>}
-        <ul className="asset-list">{sources.map(source => <li key={source.id}><strong>{source.media_type}</strong><small>{(source.size / 1024).toFixed(1)} KB · {source.rights.basis}</small><code>{source.id.slice(0, 16)}…</code><span>Declaration, not a verified license</span></li>)}</ul>
+        <button disabled={!paired || frozen} onClick={() => void perform('Reading admitted source metadata', async () => {
+          setSources((await api.sources()).sources);
+          setMessage('Source metadata refreshed. No source was imported and no project, plan or approval was changed.');
+        })}>Reload admitted source metadata</button>
+        <ul className="asset-list">{sources.map(source => <li key={source.id}><SourceMetadata source={source}/></li>)}</ul>
         {!sources.length && <div className="empty">No newly admitted source in this session. A restored project can still reference sources already held by the server.</div>}
         {advanced && <form onSubmit={e => { e.preventDefault(); void perform('Admitting the selected source', async () => { adoptSource(await api.admit(selection)); setSelection(''); }); }}>
           <label>Operator-provided selection handle<input value={selection} onChange={e => setSelection(e.target.value)} autoComplete="off" minLength={16} /></label>
@@ -255,7 +260,10 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
           <label>On-screen text<textarea value={selectedScene.body.en} rows={4} maxLength={1000} onChange={e => change({ ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, body: { ...s.body, en: e.target.value } } : s) })} /></label>
           <label>Duration in seconds<input type="number" min="0.1" max="60" step="0.1" value={selectedScene.duration} onChange={e => { const value = Number(e.target.value); if (value > 0 && value <= 60) change({ ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, duration: value } : s) }); }} /></label>
           <label>Image framing<select value={selectedScene.fit} onChange={e => change({ ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, fit: e.target.value as 'cover' | 'contain' } : s) })}><option value="contain">Contain — show the whole source</option><option value="cover">Cover — crop to the frame</option></select></label>
-          <label>Scene source<select value={selectedScene.source_asset_id} onChange={e => change({ ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, source_asset_id: e.target.value } : s) })}>{document.sources.map(id => <option key={id} value={id}>{sources.find(s => s.id === id)?.media_type ?? 'Admitted source'} · {id.slice(0, 16)}</option>)}</select></label>
+          <label>Scene source<select value={selectedScene.source_asset_id} onChange={e => change({ ...document, scenes: document.scenes.map(s => s.id === selectedScene.id ? { ...s, source_asset_id: e.target.value } : s) })}>{document.sources.map(id => {
+            const found = sources.find(s => s.id === id);
+            return <option key={id} value={id}>{found?.provenance.original?.name ?? found?.media_type ?? 'Admitted source'} · {id.slice(0, 16)}</option>;
+          })}</select></label>
           <label>Output format<select value={profile} onChange={e => { setProfile(e.target.value); invalidatePlan(); }}>{document.output_profiles.map(p => <option key={p.name} value={p.name}>{p.name} · {p.width} × {p.height}</option>)}</select></label>
           <label>Production disclosure<textarea rows={3} value={document.disclosure} maxLength={500} onChange={e => change({ ...document, disclosure: e.target.value })} /></label>
           <label>Scene representation<select value={selectedScene.visual_3d?.kind ?? 'source-image'} onChange={e => {
@@ -312,6 +320,9 @@ export function Studio({ api: providedAPI }: { api?: StudioAPI }) {
       <button disabled={!paired || !revision || dirty || frozen || !health?.capabilities.approved_silent_render} onClick={() => void perform('Preparing a bounded plan', async () => { if (revision) { setPlan(await api.plan(revision.project_id, revision.revision, profile)); setApproved(false); setReviewed(false); setJob(null); setMedia(null); } })}>Prepare render plan</button>
       {dirty && <p className="fine">Save your changes before preparing a plan.</p>}
       {plan && <div className="plan-review"><h3>Review this exact plan</h3><dl><dt>Revision</dt><dd>{plan.revision}</dd><dt>Output</dt><dd>{plan.profile}</dd><dt>Engines</dt><dd>{Object.values(plan.provider_resource_modes).join(' · ')}</dd><dt>Source fingerprints</dt><dd>{Object.keys(plan.asset_hashes).length}</dd><dt>Plan fingerprint</dt><dd><code>{plan.plan_hash}</code></dd></dl>
+        <p className="fine">{Object.keys(plan.original_hashes ?? {}).length
+          ? `${Object.keys(plan.original_hashes!).length} original-file fingerprints are bound to this plan in addition to its render derivatives.`
+          : 'No structured original-file fingerprints are bound to this plan. Its admitted-asset fingerprints still apply.'}</p>
         <dl>{Object.entries(plan.limits).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{value.toLocaleString()}</dd></div>)}</dl>
         <label className="check"><input type="checkbox" checked={reviewed} disabled={frozen || approved || !!job} onChange={e => setReviewed(e.target.checked)} />I have reviewed the sources, scene order, output and local compute request.</label>
         <div className="toolbar"><button disabled={!reviewed || approved || frozen || !!job} onClick={() => void perform('Recording your approval', async () => { await api.approve(plan.id, plan.project_id, plan.revision); setApproved(true); setMessage('This exact plan is approved for 15 minutes. No render has started.'); })}>Approve this plan</button>

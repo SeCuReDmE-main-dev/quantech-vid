@@ -74,6 +74,9 @@ legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-pat
 .asset-list, .receipt-list { list-style: none; padding: 0; display: grid; gap: .65rem; }
 .asset-list li, .receipt-list li { padding: .8rem; border: 1px solid var(--line); border-radius: 6px; display: grid; gap: .35rem; font-size: .8rem; }
 .asset-list span, .asset-list small, .receipt-list span { color: var(--muted); font-size: .72rem; }
+.source-evidence summary { cursor: pointer; padding: .6rem 0; color: var(--accent); }
+.source-evidence dd { margin: .3rem 0 .8rem; overflow-wrap: anywhere; line-height: 1.5; }
+.source-evidence dt { color: var(--muted); }
 .timeline { grid-column: 1 / -1; }
 .timeline ol { list-style: none; display: flex; gap: .6rem; padding: 0; overflow: auto; padding-bottom: .7rem; }
 .timeline li { min-width: 180px; max-width: 230px; padding: .45rem; border-radius: 7px; border: 1px solid var(--line); background: var(--raised); }

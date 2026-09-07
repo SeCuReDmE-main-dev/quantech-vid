@@ -17,6 +17,7 @@ from .production_schemas import (
     RenderPlan,
     SceneProjectV2,
     SourceAsset,
+    OriginalSourceDescriptor,
 )
 from .scene3d import (MAX_SCENE3D_FRAME_BYTES, MAX_SCENE3D_FRAMES, Scene3DUnavailable,
                       runtime_binding)
@@ -94,6 +95,18 @@ class ProductionStore:
                     provenance_json TEXT NOT NULL, rights_json TEXT NOT NULL,
                     operations_json TEXT NOT NULL, created_at TEXT NOT NULL,
                     FOREIGN KEY(owner_id) REFERENCES actors(id)
+                );
+                CREATE TABLE IF NOT EXISTS source_originals (
+                    source_id TEXT PRIMARY KEY,
+                    internal_path TEXT NOT NULL UNIQUE,
+                    sha256 TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    media_type TEXT NOT NULL,
+                    transformation TEXT NOT NULL CHECK(
+                        transformation IN ('literal-text-preview-v1','rgb-png-v1')
+                    ),
+                    FOREIGN KEY(source_id) REFERENCES source_assets(id) ON DELETE RESTRICT
                 );
                 CREATE TABLE IF NOT EXISTS projects (
                     id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -257,8 +270,44 @@ class ProductionStore:
         return (actor["kind"] != "agent"
                 or (actor.get("project_id") == project_id and actor.get("revision") == revision))
 
-    def add_source(self, actor: dict, asset: SourceAsset, internal_path: Path) -> SourceAsset:
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    def _original_path(self, path: Path) -> Path:
+        resolved = path.resolve()
+        root = (self.path.parent / "source-originals").resolve()
+        if root not in resolved.parents:
+            raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+        return resolved
+
+    def _verify_original_file(self, path: Path, descriptor: OriginalSourceDescriptor) -> Path:
+        try:
+            # Check the selected path before resolving it: resolution would hide
+            # a substituted symlink. Inaccessible/disappearing files are also a
+            # closed integrity failure, not an unfiltered filesystem exception.
+            if path.is_symlink():
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+            resolved = self._original_path(path)
+            if (not resolved.is_file() or resolved.stat().st_size != descriptor.size
+                    or not hmac.compare_digest(self._file_sha256(resolved), descriptor.sha256)):
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+            return resolved
+        except (OSError, RuntimeError) as exc:
+            raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
+
+    def add_source(self, actor: dict, asset: SourceAsset, internal_path: Path,
+                   original_path: Path | None = None) -> SourceAsset:
         owner = self._owner_for(actor)
+        descriptor = asset.provenance.original
+        if (descriptor is None) != (original_path is None):
+            raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+        verified_original = (self._verify_original_file(original_path, descriptor)
+                             if original_path is not None and descriptor is not None else None)
         with self.lock, self._connect() as db:
             db.execute(
                 "INSERT INTO source_assets VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -266,7 +315,50 @@ class ProductionStore:
                  asset.provenance.model_dump_json(), asset.rights.model_dump_json(),
                  json.dumps(asset.allowed_operations), asset.created_at),
             )
+            if verified_original is not None and descriptor is not None:
+                db.execute(
+                    "INSERT INTO source_originals VALUES(?,?,?,?,?,?,?)",
+                    (asset.id, str(verified_original), descriptor.sha256, descriptor.name,
+                     descriptor.size, descriptor.media_type, descriptor.transformation),
+                )
         return asset
+
+    def _verified_originals(self, sources: list[sqlite3.Row],
+                            expected_hashes: dict[str, str] | None = None) -> list[sqlite3.Row]:
+        source_ids = [row["id"] for row in sources]
+        with self._connect() as db:
+            rows = [db.execute("SELECT * FROM source_originals WHERE source_id=?", (source_id,)).fetchone()
+                    for source_id in source_ids]
+        linked = {row["source_id"]: row for row in rows if row is not None}
+        for source in sources:
+            try:
+                provenance = json.loads(source["provenance_json"])
+                if not isinstance(provenance, dict):
+                    raise ValueError("Invalid provenance object")
+                descriptor_payload = provenance.get("original")
+            except (ValueError, TypeError) as exc:
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
+            lineage = linked.get(source["id"])
+            if (descriptor_payload is None) != (lineage is None):
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+            if lineage is None:
+                continue
+            try:
+                descriptor = OriginalSourceDescriptor.model_validate(descriptor_payload)
+            except ValueError as exc:
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
+            stored = {key: lineage[key] for key in
+                      ("name", "sha256", "size", "media_type", "transformation")}
+            if descriptor.model_dump(mode="json") != stored:
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409)
+            try:
+                self._verify_original_file(Path(lineage["internal_path"]), descriptor)
+            except TypeError as exc:
+                raise ContractError("SOURCE_ORIGINAL_INTEGRITY_FAILED", 409) from exc
+        actual_hashes = {source_id: row["sha256"] for source_id, row in linked.items()}
+        if expected_hashes is not None and actual_hashes != expected_hashes:
+            raise ContractError("PLAN_INTEGRITY_FAILED", 409)
+        return [linked[source_id] for source_id in source_ids if source_id in linked]
 
     def source_rows(self, actor: dict, source_ids: list[str], operation: str = "render") -> list[sqlite3.Row]:
         owner = self._owner_for(actor)
@@ -380,6 +472,8 @@ class ProductionStore:
             raise ContractError("PLAN_TARGET_NOT_DECLARED", 422)
         rows = self.source_rows(actor, document.sources)
         asset_hashes = {row["id"]: row["sha256"] for row in rows}
+        originals = self._verified_originals(rows)
+        original_hashes = {row["source_id"]: row["sha256"] for row in originals}
         max_duration = data.pop("max_duration_seconds")
         max_output = data.pop("max_output_bytes")
         resource_modes = {"narration": "local-silent", "render": "local-ffmpeg"}
@@ -393,6 +487,8 @@ class ProductionStore:
             limits["max_scene3d_frame_bytes"] = min(max_output, MAX_SCENE3D_FRAME_BYTES)
         base = {**data, "project_hash": revision.document_hash, "asset_hashes": asset_hashes,
                 "provider_resource_modes": resource_modes, "limits": limits}
+        if original_hashes:
+            base["original_hashes"] = original_hashes
         plan_hash, stamp = canonical_hash(base), now_iso()
         plan = RenderPlan(id="plan_" + uuid4().hex, plan_hash=plan_hash, created_at=stamp, **base)
         with self.lock, self._connect() as db:
@@ -597,21 +693,26 @@ class ProductionStore:
             cursor = db.execute("UPDATE production_jobs SET status='failed',error_code='RESTART_INTERRUPTED',updated_at=? WHERE status='running'", (now_iso(),))
             return cursor.rowcount
 
-    def plan_and_revision_internal(self, plan_id: str) -> tuple[RenderPlan, ProjectRevision, list[sqlite3.Row]]:
+    def plan_and_revision_internal(
+        self, plan_id: str
+    ) -> tuple[RenderPlan, ProjectRevision, list[sqlite3.Row], list[sqlite3.Row]]:
         with self._connect() as db:
             row = db.execute("SELECT payload_json FROM render_plans WHERE id=?", (plan_id,)).fetchone()
             if not row: raise ContractError("PLAN_NOT_FOUND", 404)
             plan = RenderPlan.model_validate_json(row[0])
             self._verify_plan(plan)
             rev = db.execute("SELECT * FROM project_revisions WHERE project_id=? AND revision=?", (plan.project_id, plan.revision)).fetchone()
-            sources = [db.execute("SELECT * FROM source_assets WHERE id=?", (sid,)).fetchone() for sid in json.loads(rev["document_json"])["sources"]]
-        if not rev or any(source is None for source in sources):
+            sources = ([] if rev is None else
+                       [db.execute("SELECT * FROM source_assets WHERE id=?", (sid,)).fetchone()
+                        for sid in json.loads(rev["document_json"])["sources"]])
+        if rev is None or any(source is None for source in sources):
             raise ContractError("PLAN_INTEGRITY_FAILED", 409)
         document_payload = json.loads(rev["document_json"])
         if (canonical_hash(document_payload) != rev["document_hash"]
                 or rev["document_hash"] != plan.project_hash
                 or any(plan.asset_hashes.get(source["id"]) != source["sha256"] for source in sources)):
             raise ContractError("PLAN_INTEGRITY_FAILED", 409)
+        originals = self._verified_originals(sources, plan.original_hashes)
         revision = ProjectRevision(project_id=rev["project_id"], revision=rev["revision"], document_hash=rev["document_hash"],
                                    document=SceneProjectV2.model_validate_json(rev["document_json"]), created_at=rev["created_at"])
         expected_scene3d = plan.provider_resource_modes.get("scene3d")
@@ -622,4 +723,4 @@ class ProductionStore:
                 raise ContractError("THREED_RENDERER_UNAVAILABLE", 503) from exc
             if not expected_scene3d or not hmac.compare_digest(expected_scene3d, current_scene3d):
                 raise ContractError("THREED_BUNDLE_MISMATCH", 409)
-        return plan, revision, sources
+        return plan, revision, sources, originals

@@ -19,7 +19,7 @@ from PIL import Image
 
 from quantech_vid.api import APIConfig, create_app
 from quantech_vid.config import Settings
-from quantech_vid.production_store import now_iso, token_hash
+from quantech_vid.production_store import ContractError, canonical_hash, now_iso, token_hash
 
 
 ORIGIN = "http://127.0.0.1:7476"
@@ -390,6 +390,193 @@ def test_markdown_upload_is_literal_byte_exact_utf8_and_bounded(api) -> None:
     assert traversal.status_code == 422
 
 
+def test_uploaded_original_metadata_persists_and_cannot_be_forged_or_cross_listed(api) -> None:
+    client, app, _ = api
+    _, headers = pair(client)
+    content = "# Leçon durable\n\nTexte exact.\n".encode("utf-8")
+    upload = client.post("/api/v2/sources/upload", headers={
+        **headers, "x-file-name": quote("leçon.md"), "x-rights-basis": "owned",
+        "x-rights-reference": "operator", "x-source-origin": "browser",
+    }, content=content)
+    assert upload.status_code == 201, upload.text
+    asset = upload.json()["asset"]
+    assert asset["provenance"]["original"] == {
+        "name": "leçon.md", "sha256": hashlib.sha256(content).hexdigest(),
+        "size": len(content), "media_type": "text/markdown",
+        "transformation": "literal-text-preview-v1",
+    }
+
+    reopened = TestClient(create_app(
+        app.state.production_service.settings,
+        APIConfig(expected_host="127.0.0.1:7476", allowed_origin=ORIGIN,
+                  signing_key=b"test-signing-key-32-bytes-long!!", background_jobs=False),
+    ))
+    listed = reopened.get("/api/v2/sources", headers=headers)
+    assert listed.status_code == 200
+    restored = next(item for item in listed.json()["sources"] if item["id"] == asset["id"])
+    assert restored["provenance"]["original"] == asset["provenance"]["original"]
+
+    forged = {**asset["provenance"], "original": {
+        **asset["provenance"]["original"], "sha256": "0" * 64,
+    }}
+    rejected = client.post("/api/v2/sources/admit", headers=headers, json={
+        "selection_token": "selection-token-0001", "provenance": forged,
+        "rights": {"basis": "owned", "reference": "operator"},
+        "allowed_operations": ["render"],
+    })
+    assert rejected.status_code == 422
+    rejected_migration = client.post("/api/v2/legacy-projects/legacy-demo/import", headers=headers,
+        json={"provenance": forged, "rights": {"basis": "owned", "reference": "operator"}})
+    assert rejected_migration.status_code == 422
+
+    other_code = app.state.production_store.issue_pairing_code()
+    other = client.post("/api/v2/pair", headers=BASE_HEADERS,
+        json={"operator_code": other_code, "actor_id": "other-owner"})
+    other_headers = {**BASE_HEADERS, "authorization": f"Bearer {other.json()['session_token']}",
+                     "x-csrf-token": other.json()["csrf_token"]}
+    assert client.get("/api/v2/sources", headers=other_headers).json()["sources"] == []
+
+
+def test_original_integrity_is_checked_at_plan_and_before_render(api) -> None:
+    client, app, _ = api
+    _, headers = pair(client)
+    content = b"# exact original\n"
+    upload = client.post("/api/v2/sources/upload", headers={
+        **headers, "x-file-name": "exact.md", "x-rights-basis": "owned",
+        "x-rights-reference": "operator", "x-source-origin": "browser",
+    }, content=content)
+    asset = upload.json()["asset"]
+    document = {"schema_version": "2.0", "slug": "lineage-integrity", "title": "Lineage",
+        "sources": [asset["id"]], "scenes": [{"id": "scene-1", "duration": 0.5,
+            "source_asset_id": asset["id"], "title": {"en": "Exact"}, "fit": "contain"}],
+        "tracks": [{"locale": "en", "title": "English", "narration": "Exact source."}],
+        "output_profiles": [{"name": "square", "width": 320, "height": 320, "fps": 12}]}
+    created = client.post("/api/v2/projects", headers=headers, json={"document": document}).json()
+    _, agent_headers = create_agent(client, headers, created["project_id"])
+    plan_request = {"project_id": created["project_id"], "revision": 1, "locale": "en",
+                    "profile": "square", "narration_mode": "silent",
+                    "max_duration_seconds": 5, "max_output_bytes": 50_000_000}
+    store = app.state.production_store
+    with store._connect() as db:
+        original_path = Path(db.execute(
+            "SELECT internal_path FROM source_originals WHERE source_id=?", (asset["id"],)
+        ).fetchone()[0])
+    original_path.write_bytes(b"tampered")
+    rejected = client.post("/api/v2/render-plans", headers=agent_headers, json=plan_request)
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "SOURCE_ORIGINAL_INTEGRITY_FAILED"
+
+    original_path.write_bytes(content)
+    plan = client.post("/api/v2/render-plans", headers=agent_headers, json=plan_request).json()
+    assert plan["original_hashes"] == {asset["id"]: hashlib.sha256(content).hexdigest()}
+    with store._connect() as db:
+        payload = json.loads(db.execute(
+            "SELECT payload_json FROM render_plans WHERE id=?", (plan["id"],)
+        ).fetchone()[0])
+        original_payload = json.dumps(payload)
+        payload["original_hashes"][asset["id"]] = "0" * 64
+        unsigned = {key: value for key, value in payload.items()
+                    if key not in {"id", "plan_hash", "created_at"}}
+        payload["plan_hash"] = canonical_hash(unsigned)
+        db.execute("UPDATE render_plans SET payload_json=? WHERE id=?", (json.dumps(payload), plan["id"]))
+    with pytest.raises(ContractError, match="PLAN_INTEGRITY_FAILED"):
+        store.plan_and_revision_internal(plan["id"])
+
+    with store._connect() as db:
+        db.execute("UPDATE render_plans SET payload_json=? WHERE id=?", (original_payload, plan["id"]))
+    original_path.unlink()
+    with pytest.raises(ContractError, match="SOURCE_ORIGINAL_INTEGRITY_FAILED"):
+        store.plan_and_revision_internal(plan["id"])
+
+
+@pytest.mark.parametrize("tamper", [None, "delete-during-render", "change-during-render", "plan-before-render"])
+def test_linked_original_produces_path_free_receipted_lineage_sidecar(api, tamper) -> None:
+    client, app, _ = api
+    _, headers = pair(client)
+    content = "# Source exacte\n".encode("utf-8")
+    upload = client.post("/api/v2/sources/upload", headers={
+        **headers, "x-file-name": quote("privé.md"), "x-rights-basis": "owned",
+        "x-rights-reference": "operator", "x-source-origin": "browser",
+    }, content=content).json()
+    source_id = upload["asset"]["id"]
+    document = {"schema_version": "2.0", "slug": "lineage-render", "title": "Lineage render",
+        "sources": [source_id], "scenes": [{"id": "scene-1", "duration": 0.5,
+            "source_asset_id": source_id, "title": {"en": "Lineage"}, "fit": "contain"}],
+        "tracks": [{"locale": "en", "title": "English", "narration": "Lineage."}],
+        "output_profiles": [{"name": "square", "width": 320, "height": 320, "fps": 12}]}
+    revision = client.post("/api/v2/projects", headers=headers, json={"document": document}).json()
+    agent_id, agent_headers = create_agent(client, headers, revision["project_id"])
+    plan = client.post("/api/v2/render-plans", headers=agent_headers, json={
+        "project_id": revision["project_id"], "revision": 1, "locale": "en", "profile": "square",
+        "narration_mode": "silent", "max_duration_seconds": 5, "max_output_bytes": 50_000_000,
+    }).json()
+    approved = client.post(f"/api/v2/render-plans/{plan['id']}/authorize", headers=headers, json={
+        "agent_id": agent_id, "project_id": revision["project_id"], "revision": 1,
+        "expires_in_seconds": 300,
+    })
+    assert approved.status_code == 201
+    submitted = client.post("/api/v2/renders/run-approved", headers={
+        **agent_headers, "idempotency-key": "lineage-render-key-0001",
+    }, json={"plan_id": plan["id"]})
+    assert submitted.status_code == 202
+    if tamper == "plan-before-render":
+        with app.state.production_store._connect() as db:
+            payload = json.loads(db.execute(
+                "SELECT payload_json FROM render_plans WHERE id=?", (plan["id"],)
+            ).fetchone()[0])
+            payload["original_hashes"][source_id] = "0" * 64
+            payload["plan_hash"] = canonical_hash({key: value for key, value in payload.items()
+                if key not in {"id", "plan_hash", "created_at"}})
+            db.execute("UPDATE render_plans SET payload_json=? WHERE id=?",
+                       (json.dumps(payload), plan["id"]))
+    elif tamper:
+        service = app.state.production_service
+        original_renderer = service.render_fn
+
+        def mutate_during_render(*args, **kwargs):
+            artifacts = list(original_renderer(*args, **kwargs))
+            with app.state.production_store._connect() as db:
+                original_path = Path(db.execute(
+                    "SELECT internal_path FROM source_originals WHERE source_id=?", (source_id,)
+                ).fetchone()[0])
+            if tamper == "delete-during-render":
+                original_path.unlink()
+            else:
+                original_path.write_bytes(b"changed during render")
+            return artifacts
+
+        service.render_fn = mutate_during_render
+    app.state.production_service.drain()
+    result = client.get(f"/api/v2/renders/{submitted.json()['id']}", headers=agent_headers).json()
+    if tamper:
+        assert result["status"] == "failed"
+        expected = "PLAN_INTEGRITY_FAILED" if tamper == "plan-before-render" else "SOURCE_ORIGINAL_INTEGRITY_FAILED"
+        assert result["error_code"] == expected
+        assert result["receipts"] == []
+        assert not list(app.state.production_service.settings.data_dir.rglob("*-source-lineage.json"))
+        return
+    roles = {item["role"] for item in result["receipts"]}
+    assert {"video-mp4", "video-webm", "source-lineage"}.issubset(roles)
+    receipt = next(item for item in result["receipts"] if item["role"] == "source-lineage")
+    artifact = client.get(
+        f"/api/v2/renders/{result['id']}/artifacts/{receipt['name']}", headers=agent_headers,
+    )
+    assert artifact.status_code == 200
+    assert hashlib.sha256(artifact.content).hexdigest() == receipt["sha256"]
+    sidecar = artifact.json()
+    assert sidecar["project"] == {"id": revision["project_id"], "revision": 1,
+                                  "sha256": revision["document_hash"]}
+    assert sidecar["sources"] == [{
+        "source_asset_id": source_id,
+        "derived_sha256": upload["asset"]["sha256"],
+        "original_sha256": hashlib.sha256(content).hexdigest(),
+        "original_size": len(content), "original_media_type": "text/markdown",
+        "transformation": "literal-text-preview-v1",
+    }]
+    serialized = json.dumps(sidecar)
+    assert "privé.md" not in serialized and "internal_path" not in serialized
+
+
 def test_plain_text_upload_remains_strict_utf8(api) -> None:
     client, _, _ = api
     _, headers = pair(client)
@@ -434,6 +621,7 @@ def test_approved_silent_render_end_to_end_with_idempotency(api) -> None:
         "narration_mode": "silent", "max_duration_seconds": 5, "max_output_bytes": 50_000_000})
     assert plan_response.status_code == 201, plan_response.text
     plan = plan_response.json()
+    assert "original_hashes" not in plan
     denied = client.post("/api/v2/renders/run-approved", headers={**agent_headers, "idempotency-key": "request-key-00000001"},
                          json={"plan_id": plan["id"]})
     assert denied.status_code == 403 and denied.json()["error"]["code"] == "APPROVAL_REQUIRED"

@@ -24,6 +24,7 @@ from .config import Settings
 from .production_schemas import (AdmitSourceRequest, AuthorizePlanRequest, CreateProjectRequest,
     MigrateV1Request, OutputProfileV2, PrepareRenderPlanRequest, RegisterAgentRequest, ReviseProjectRequest,
     RunApprovedRenderRequest, SceneProjectV2, SceneV2, SourceAsset, SourceProvenance,
+    OriginalSourceDescriptor,
     SourceRights, TrackV2)
 from .production_service import ProductionService
 from .production_store import ContractError, ProductionStore, now_iso
@@ -157,7 +158,8 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         return detected
 
     def admit_derived_image(source: Path, principal: dict, provenance: SourceProvenance,
-                            rights: SourceRights, operations: list[str]) -> SourceAsset:
+                            rights: SourceRights, operations: list[str],
+                            original_path: Path | None = None) -> SourceAsset:
         detected = validate_image(source)
         asset_id = "src_" + uuid4().hex
         target = runtime.data_dir / "admitted-assets" / f"{asset_id}.png"
@@ -166,7 +168,7 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
             opened.convert("RGB").save(target, format="PNG", optimize=True)
         asset = SourceAsset(id=asset_id, sha256=file_sha256(target), media_type="image/png", size=target.stat().st_size,
             provenance=provenance, rights=rights, allowed_operations=sorted(set(operations)), created_at=now_iso())
-        return store.add_source(principal, asset, target)
+        return store.add_source(principal, asset, target, original_path=original_path)
 
     @application.get("/api/v1/health")
     @application.get("/api/v2/health")
@@ -212,7 +214,8 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         if selected.is_symlink() or not source.is_file() or not any(source == root or root in source.parents for root in runtime.allowed_asset_roots):
             raise ContractError("SELECTION_REJECTED", 403)
         if source.stat().st_size > config.max_source_bytes: raise ContractError("SOURCE_TOO_LARGE", 413)
-        return admit_derived_image(source, principal, payload.provenance, payload.rights, payload.allowed_operations)
+        provenance = SourceProvenance.model_validate(payload.provenance.model_dump(mode="json"))
+        return admit_derived_image(source, principal, provenance, payload.rights, payload.allowed_operations)
 
     @application.post("/api/v2/sources/upload", status_code=201)
     async def upload_source(request: Request, principal: dict = Depends(human)) -> dict:
@@ -241,8 +244,6 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                     digest.update(chunk); stream.write(chunk)
             if size == 0: raise ContractError("EMPTY_SOURCE", 422)
             shutil.move(staging, original)
-            provenance = SourceProvenance(origin=origin, collected_by=principal["id"],
-                note=f"Browser-selected original SHA-256: {digest.hexdigest()}")
             rights = SourceRights(basis=basis, reference=reference)
             if suffix in {".txt", ".md", ".markdown"}:
                 try: text = original.read_text(encoding="utf-8")
@@ -255,10 +256,21 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
                 draw.multiline_text((70, 70), "\n".join(lines) or "(empty text)", fill="white", font=font, spacing=12)
                 canvas.save(derived, format="PNG")
                 original_media_type = "text/markdown" if suffix in {".md", ".markdown"} else "text/plain"
+                transformation = "literal-text-preview-v1"
             else:
                 detected = validate_image(original); derived = original
                 original_media_type = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}[detected]
-            asset = admit_derived_image(derived, principal, provenance, rights, ["render", "analyze"])
+                transformation = "rgb-png-v1"
+            original_descriptor = OriginalSourceDescriptor(
+                name=filename, media_type=original_media_type, size=size,
+                sha256=digest.hexdigest(), transformation=transformation,
+            )
+            provenance = SourceProvenance(
+                origin=origin, collected_by=principal["id"], original=original_descriptor,
+            )
+            asset = admit_derived_image(
+                derived, principal, provenance, rights, ["render", "analyze"], original_path=original,
+            )
             admitted = True
             return {"asset": asset.model_dump(mode="json"), "original": {"name": filename,
                 "media_type": original_media_type,
@@ -345,7 +357,8 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         source_map: dict[Path, SourceAsset] = {}
         for source in source_paths:
             shutil.copyfile(source, archive / f"source-{len(source_map) + 1:03}{source.suffix.lower()}")
-            source_map[source] = admit_derived_image(source, principal, payload.provenance, payload.rights,
+            provenance = SourceProvenance.model_validate(payload.provenance.model_dump(mode="json"))
+            source_map[source] = admit_derived_image(source, principal, provenance, payload.rights,
                                                      ["render", "analyze"])
         document = SceneProjectV2(slug=legacy.slug, title=legacy.title, disclosure=legacy.disclosure,
             sources=[item.id for item in source_map.values()],

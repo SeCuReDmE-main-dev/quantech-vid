@@ -215,7 +215,7 @@ class RenderStore:
         return self.job.id
 
     def plan_and_revision_internal(self, plan_id: str):
-        return self.plan, self.revision, self.sources
+        return self.plan, self.revision, self.sources, []
 
     def update_job(self, job_id: str, **changes: object) -> None:
         self.job = self.job.model_copy(update=changes)

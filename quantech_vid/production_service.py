@@ -11,6 +11,7 @@ from typing import Callable
 
 from .claims import build_claim_sidecar, claim_notice
 from .config import Settings
+from .lineage import build_source_lineage_sidecar
 from .production_schemas import ProductionJob
 from .production_store import ProductionStore
 from .renderer import render_project
@@ -52,7 +53,7 @@ class ProductionService:
             if claimed != job_id:
                 return self.store.job_internal(job_id)[0]
         try:
-            plan, revision, sources = self.store.plan_and_revision_internal(job.plan_id)
+            plan, revision, sources, originals = self.store.plan_and_revision_internal(job.plan_id)
             document = revision.document
             if sum(scene.duration for scene in document.scenes) > float(plan.limits["max_duration_seconds"]):
                 raise ValueError("RENDER_LIMIT_EXCEEDED")
@@ -107,6 +108,9 @@ class ProductionService:
                 raise ValueError("RENDER_QA_FAILED") from exc
             if not qa.get("passed") or not qa.get("webm", {}).get("passed"):
                 raise ValueError("RENDER_QA_FAILED")
+            # Recheck persisted bindings and exact originals after the potentially
+            # long render, before issuing provenance or a successful receipt.
+            self.store.plan_and_revision_internal(job.plan_id)
             sidecar = build_claim_sidecar(
                 project_id=revision.project_id,
                 revision=revision.revision,
@@ -118,6 +122,18 @@ class ProductionService:
             claims_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True, ensure_ascii=False),
                                    encoding="utf-8")
             artifacts.append(claims_path)
+            if originals:
+                lineage_sidecar = build_source_lineage_sidecar(
+                    plan=plan, revision=revision, sources=sources, originals=originals,
+                )
+                lineage_path = output_dir / (
+                    f"{document.slug}-{plan.locale}-{plan.profile}-source-lineage.json"
+                )
+                lineage_path.write_text(
+                    json.dumps(lineage_sidecar, indent=2, sort_keys=True, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                artifacts.append(lineage_path)
             track = next(item for item in document.tracks if item.locale == plan.locale)
             if track.segments:
                 transcript_sidecar = build_transcript_sidecar(
@@ -148,6 +164,7 @@ class ProductionService:
                      "THREED_RENDERER_UNAVAILABLE", "THREED_BUNDLE_MISMATCH",
                      "THREED_PROFILE_LIMIT_EXCEEDED", "THREED_FRAME_LIMIT_EXCEEDED",
                      "THREED_FRAME_BYTES_LIMIT_EXCEEDED", "THREED_RENDER_DEADLINE_EXCEEDED"}
+            known.update({"SOURCE_ORIGINAL_INTEGRITY_FAILED", "PLAN_INTEGRITY_FAILED"})
             code = str(exc) if str(exc) in known else "RENDER_FAILED"
             self.store.update_job(job.id, status="failed", error_code=code)
         return self.store.job_internal(job_id)[0]
@@ -167,6 +184,7 @@ class ProductionService:
         if path.name.endswith("-qa.json"): role = "quality-report"
         elif path.name.endswith("-claims.json"): role = "claim-provenance"
         elif path.name.endswith("-transcript-provenance.json"): role = "transcript-provenance"
+        elif path.name.endswith("-source-lineage.json"): role = "source-lineage"
         elif path.name.endswith("-provenance.json"): role = "provenance"
         else: role = roles.get(suffix, "artifact")
         return {"name": path.name, "role": role, "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",

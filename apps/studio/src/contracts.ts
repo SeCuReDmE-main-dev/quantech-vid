@@ -4,9 +4,16 @@ const id = z.string().min(1).max(200);
 const hash = z.string().regex(/^[a-f0-9]{64}$/i);
 const localized = (maximum: number) => z.object({ en: z.string().max(maximum), fr: z.string().max(maximum).optional() });
 
+export const sourceOriginalSchema = z.object({
+  name: z.string().min(1).max(180).refine(name => !/[\\/]/.test(name) && name !== '.' && name !== '..'), sha256: hash,
+  size: z.number().int().positive().max(50_000_000),
+  media_type: z.enum(['text/plain', 'text/markdown', 'image/png', 'image/jpeg', 'image/webp']),
+  transformation: z.enum(['literal-text-preview-v1', 'rgb-png-v1']),
+}).strict();
 export const sourceSchema = z.object({
   id, sha256: hash, media_type: z.string(), size: z.number().int().nonnegative(),
-  provenance: z.object({ origin: z.string(), collected_by: z.string(), note: z.string().nullable().optional() }),
+  provenance: z.object({ origin: z.string(), collected_by: z.string(), note: z.string().nullable().optional(),
+    original: sourceOriginalSchema.optional() }),
   rights: z.object({ basis: z.enum(['owned', 'licensed', 'public-domain', 'permission']), reference: z.string() }),
   allowed_operations: z.array(z.enum(['render', 'analyze'])), created_at: z.string(),
 });
@@ -112,6 +119,7 @@ export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 export const planSchema = z.object({
   id, project_id: id, revision: z.number().int().positive(), project_hash: hash,
   asset_hashes: z.record(z.string(), hash), locale: z.enum(['fr', 'en']), profile: z.string(),
+  original_hashes: z.record(z.string().regex(/^src_[a-f0-9]{32}$/), hash).optional(),
   provider_resource_modes: z.record(z.string(), z.string()),
   limits: z.record(z.string(), z.number().finite()), plan_hash: hash, created_at: z.string(),
 });
