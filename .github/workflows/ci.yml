@@ -83,4 +83,5 @@ jobs:
       - run: npm run test:contract
       - run: npm run build
       - run: npm run package
+      - run: npm run lint:firefox
       - run: npm audit --audit-level=low
