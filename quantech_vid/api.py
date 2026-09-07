@@ -48,6 +48,9 @@ from .tool_catalog import public_catalog
 from .tool_service import ToolService
 
 
+MAX_AUDIO_PREVIEW_BYTES = 9_600_044
+
+
 @dataclass(frozen=True)
 class APIConfig:
     expected_host: str
@@ -515,6 +518,45 @@ def create_app(settings: Settings | None = None, api_config: APIConfig | None = 
         if detected_format != expected_format:
             raise ContractError("SOURCE_PREVIEW_UNSUPPORTED_MEDIA", 415)
         return Response(content=payload, media_type=media_type, headers={
+            "Cache-Control": "no-store",
+            "Content-Length": str(len(payload)),
+            "X-Content-Type-Options": "nosniff",
+        })
+
+    @application.get("/api/v2/sources/{source_id}/audio-preview")
+    def source_audio_preview(source_id: str, principal: dict = Depends(human)) -> Response:
+        if re.fullmatch(r"src_[0-9a-f]{32}", source_id) is None:
+            raise ContractError("SOURCE_NOT_FOUND", 404)
+        original_path, descriptor, _ = store.audio_original_for_analysis(principal, source_id)
+        if descriptor.size > MAX_AUDIO_PREVIEW_BYTES:
+            raise ContractError("AUDIO_PREVIEW_TOO_LARGE", 413)
+        try:
+            if original_path.is_symlink():
+                raise ContractError("AUDIO_PREVIEW_INTEGRITY_FAILED", 409)
+            resolved = original_path.resolve(strict=True)
+            original_root = (runtime.data_dir / "source-originals").resolve(strict=True)
+            if original_root not in resolved.parents or not resolved.is_file():
+                raise ContractError("AUDIO_PREVIEW_INTEGRITY_FAILED", 409)
+            actual_size = resolved.stat().st_size
+            if actual_size > MAX_AUDIO_PREVIEW_BYTES:
+                raise ContractError("AUDIO_PREVIEW_TOO_LARGE", 413)
+            if actual_size != descriptor.size:
+                raise ContractError("AUDIO_PREVIEW_INTEGRITY_FAILED", 409)
+            with resolved.open("rb") as stream:
+                payload = stream.read(MAX_AUDIO_PREVIEW_BYTES + 1)
+            if len(payload) > MAX_AUDIO_PREVIEW_BYTES:
+                raise ContractError("AUDIO_PREVIEW_TOO_LARGE", 413)
+            audio = inspect_asr_pcm_source(payload)
+            if (audio.size != descriptor.size
+                    or not hmac.compare_digest(audio.sha256, descriptor.sha256)):
+                raise ContractError("AUDIO_PREVIEW_INTEGRITY_FAILED", 409)
+        except ContractError:
+            raise
+        except AudioSourceError as exc:
+            raise ContractError("AUDIO_PREVIEW_INTEGRITY_FAILED", 409) from exc
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise ContractError("AUDIO_PREVIEW_INTEGRITY_FAILED", 409) from exc
+        return Response(content=payload, media_type="audio/wav", headers={
             "Cache-Control": "no-store",
             "Content-Length": str(len(payload)),
             "X-Content-Type-Options": "nosniff",

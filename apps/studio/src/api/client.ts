@@ -14,6 +14,8 @@ const messages: Record<string, string> = {
   LOCAL_ASR_AUDIO_EXCEEDS_PROJECT_TIMELINE: 'The audio is longer than this film. Adjust and save the timeline explicitly; no audio or caption was silently truncated.',
   LOCAL_ASR_TRANSCRIPTION_TIMEOUT: 'Local transcription exceeded its time limit. Do not retry automatically; your captions remain unchanged.',
   LOCAL_ASR_PROPOSAL_INVALID: 'The transcription proposal failed validation. Keep your manual captions or inspect the original source.',
+  AUDIO_PREVIEW_UNAVAILABLE: 'The original audio could not be opened for review. Reload source metadata or re-admit a trusted copy.',
+  AUDIO_PREVIEW_INTEGRITY_FAILED: 'The original audio bytes do not match their source record. Nothing was played or transcribed.',
   AUDIO_SOURCE_FORMAT_REJECTED: 'Select a canonical WAV PCM16, mono, 16 kHz file. No automatic conversion is performed.',
   LOCAL_VOICE_UNAVAILABLE: 'The server has no qualified local voice runtime. Choose silent rendering or ask the operator to qualify the isolated CPU runtime. No cloud fallback was requested.',
   LOCAL_VOICE_LOCALE_UNSUPPORTED: 'This experimental stock voice supports English only.',
@@ -169,40 +171,59 @@ export class StudioAPI {
   }
   sample() { return this.request('/sources/sample', sourceSchema, 'POST', {}, this.operator()); }
   sources() { return this.request('/sources', z.object({ sources: z.array(sourceSchema) }), 'GET', undefined, this.operator()); }
-  async sourcePreview(source: SourceAsset): Promise<Blob> {
+  private async verifiedPreview(sourceId: string, route: 'preview' | 'audio-preview',
+    receipt: { sha256: string; size: number; mediaType: string }, maximumBytes: number,
+    unavailableCode: 'SOURCE_PREVIEW_UNAVAILABLE' | 'AUDIO_PREVIEW_UNAVAILABLE',
+    integrityCode: 'SOURCE_INTEGRITY_FAILED' | 'AUDIO_PREVIEW_INTEGRITY_FAILED'): Promise<Blob> {
     const human = this.operator(), epoch = this.previewEpoch;
-    if (!/^src_[a-f0-9]{32}$/.test(source.id) || !/^[a-f0-9]{64}$/.test(source.sha256) ||
-        !['image/png', 'image/jpeg', 'image/webp'].includes(source.media_type) ||
-        !Number.isSafeInteger(source.size) || source.size < 1 || source.size > 10 * 1024 * 1024)
-      throw new StudioError('SOURCE_PREVIEW_UNAVAILABLE');
-    const key = `${source.id}:${source.sha256}:${source.size}:${source.media_type}`;
+    const key = `${route}:${sourceId}:${receipt.sha256}:${receipt.size}:${receipt.mediaType}`;
     const cached = this.previews.get(key);
     if (cached) { this.previews.delete(key); this.previews.set(key, cached); return cached; }
     let response: Response;
-    try { response = await this.fetcher(`/api/v2/sources/${source.id}/preview`, {
+    try { response = await this.fetcher(`/api/v2/sources/${sourceId}/${route}`, {
       headers: { Authorization: `Bearer ${human.session_token}` }, credentials: 'omit',
       cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(20000),
     }); } catch { throw new StudioError('NETWORK_UNAVAILABLE'); }
-    if (!response.ok) throw new StudioError('SOURCE_PREVIEW_UNAVAILABLE', response.status);
-    if (response.headers.get('content-type') !== source.media_type ||
-        Number(response.headers.get('content-length')) !== source.size || !response.body)
-      throw new StudioError('SOURCE_INTEGRITY_FAILED');
+    if (!response.ok) throw new StudioError(unavailableCode, response.status);
+    if (response.headers.get('content-type') !== receipt.mediaType ||
+        Number(response.headers.get('content-length')) !== receipt.size || !response.body)
+      throw new StudioError(integrityCode);
     const reader = response.body.getReader(), parts: Uint8Array<ArrayBuffer>[] = []; let size = 0;
     try {
       for (;;) { const part = await reader.read(); if (part.done) break;
         size += part.value.byteLength;
-        if (size > source.size) throw new StudioError('SOURCE_INTEGRITY_FAILED');
+        if (size > receipt.size || size > maximumBytes) throw new StudioError(integrityCode);
         parts.push(new Uint8Array(part.value)); }
     } finally { await reader.cancel(); reader.releaseLock(); }
-    const blob = new Blob(parts, { type: source.media_type });
+    const blob = new Blob(parts, { type: receipt.mediaType });
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())))
       .map(n => n.toString(16).padStart(2, '0')).join('');
-    if (size !== source.size || hash !== source.sha256) throw new StudioError('SOURCE_INTEGRITY_FAILED');
+    if (size !== receipt.size || hash !== receipt.sha256) throw new StudioError(integrityCode);
     if (epoch !== this.previewEpoch || human !== this.human) throw new StudioError('TOOL_CONTEXT_CHANGED');
     this.previews.set(key, blob);
     while (this.previews.size > 4 || [...this.previews.values()].reduce((sum, item) => sum + item.size, 0) > 20 * 1024 * 1024)
       this.previews.delete(this.previews.keys().next().value!);
     return blob;
+  }
+  async sourcePreview(source: SourceAsset): Promise<Blob> {
+    if (!/^src_[a-f0-9]{32}$/.test(source.id) || !/^[a-f0-9]{64}$/.test(source.sha256) ||
+        !['image/png', 'image/jpeg', 'image/webp'].includes(source.media_type) ||
+        !Number.isSafeInteger(source.size) || source.size < 1 || source.size > 10 * 1024 * 1024)
+      throw new StudioError('SOURCE_PREVIEW_UNAVAILABLE');
+    return this.verifiedPreview(source.id, 'preview', {
+      sha256: source.sha256, size: source.size, mediaType: source.media_type,
+    }, 10 * 1024 * 1024, 'SOURCE_PREVIEW_UNAVAILABLE', 'SOURCE_INTEGRITY_FAILED');
+  }
+  async sourceAudioPreview(source: SourceAsset): Promise<Blob> {
+    const original = source.provenance.original;
+    if (!/^src_[a-f0-9]{32}$/.test(source.id) || !source.allowed_operations.includes('analyze') ||
+        original?.media_type !== 'audio/wav' || original.transformation !== 'pcm16-waveform-png-v1' ||
+        !/^[a-f0-9]{64}$/.test(original.sha256) || !Number.isSafeInteger(original.size) ||
+        original.size < 45 || original.size > 9_600_044)
+      throw new StudioError('AUDIO_PREVIEW_UNAVAILABLE');
+    return this.verifiedPreview(source.id, 'audio-preview', {
+      sha256: original.sha256, size: original.size, mediaType: 'audio/wav',
+    }, 9_600_044, 'AUDIO_PREVIEW_UNAVAILABLE', 'AUDIO_PREVIEW_INTEGRITY_FAILED');
   }
   projects() { return this.request('/projects', z.object({ projects: z.array(projectSummarySchema) }), 'GET', undefined, this.operator()); }
   async upload(file: File, basis: 'owned' | 'licensed' | 'public-domain' | 'permission', reference: string) {

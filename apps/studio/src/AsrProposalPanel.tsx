@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { StudioAPI, StudioError } from './api/client';
 import type { AsrProposal } from './api/asr-contracts';
 import type { ProjectRevision, SourceAsset, TranscriptSegment } from './contracts';
+import { SourceAudioPreview } from './SourceAudioPreview';
 
 export type AsrContext = { api: StudioAPI; revision: ProjectRevision; sources: SourceAsset[];
   configured: boolean; disabled: boolean; onPendingChange: (pending: boolean) => void };
@@ -47,6 +48,9 @@ export function AsrProposalPanel({ context, onReview }: { context: AsrContext;
       <option value="">Choose an admitted WAV source</option>
       {candidates.map(s => <option key={s.id} value={s.id}>{s.provenance.original?.name}</option>)}
     </select></label>
+    {source && <SourceAudioPreview
+      key={`${source.id}:${source.sha256}:${source.provenance.original?.sha256}`}
+      source={source} api={context.api} disabled={context.disabled || pending} />}
     <label><input type="checkbox" checked={acknowledged} disabled={context.disabled || pending}
       onChange={e => setAcknowledged(e.target.checked)}/>I understand this is an unverified machine proposal requiring review.</label>
     <button type="button" disabled={context.disabled || pending || !context.configured || !acknowledged || !source}

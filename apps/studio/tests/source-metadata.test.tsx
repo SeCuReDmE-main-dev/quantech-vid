@@ -5,6 +5,18 @@ import { SourceMetadata } from '../src/SourceMetadata';
 import { source, plan } from './fixtures';
 
 afterEach(cleanup);
+it('keeps a waveform representation distinct from its audio carrier and speech claims', () => {
+  const asset = sourceSchema.parse({ ...source, provenance: { ...source.provenance, original: {
+    name: 'fixture.wav', sha256: 'b'.repeat(64), size: 32044,
+    media_type: 'audio/wav', transformation: 'pcm16-waveform-png-v1',
+  } } });
+  render(<SourceMetadata source={asset}/>);
+  expect(screen.getByText(/Original: audio\/wav/)).toBeTruthy();
+  expect(screen.getByText(/Render derivative: image\/png/)).toBeTruthy();
+  expect(screen.getByText(/this image neither plays audio nor verifies speech/)).toBeTruthy();
+  expect(screen.getByText(asset.sha256)).toBeTruthy();
+  expect(screen.getByText('b'.repeat(64))).toBeTruthy();
+});
 it('labels a GLB derivative as static rather than editable or animated 3D', () => {
   const asset = sourceSchema.parse({ ...source, provenance: { ...source.provenance, original: {
     name: 'fixture.glb', sha256: 'b'.repeat(64), size: 1024,
