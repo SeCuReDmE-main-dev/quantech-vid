@@ -20,6 +20,7 @@ from quantech_vid.production_service import ProductionService
 from quantech_vid.production_store import ProductionStore, now_iso
 from quantech_vid.tool_catalog import TOOL_DEFINITIONS, public_catalog
 from quantech_vid.tool_service import ToolService
+from quantech_vid.vision import VisionAdapter
 
 
 EXPECTED_NAMES = ["quantech_inspect_project", "quantech_stage_source_import",
@@ -86,6 +87,33 @@ def test_catalog_has_exact_closed_schemas() -> None:
         for nested in item["input_schema"].get("$defs", {}).values():
             if nested.get("type") == "object":
                 assert nested.get("additionalProperties") is False
+
+
+@pytest.mark.parametrize("detected", [False, True])
+def test_visual_observation_never_becomes_authority_or_an_outcome(tools_fixture: dict, detected: bool) -> None:
+    class Detector:
+        def detect(self, image: bytes, media_type: str) -> dict:
+            assert media_type == "image/png" and image
+            return {"success": True, "moduleId": "SyntheticPilot", "count": 1,
+                    "predictions": [{"label": "object", "confidence": 90.0,
+                                     "x_min": 1.0, "y_min": 1.0, "x_max": 20.0, "y_max": 20.0}]}
+
+    vision = VisionAdapter(Detector(), expected_module_id="SyntheticPilot") if detected else VisionAdapter()
+    service = ToolService(tools_fixture["store"], tools_fixture["production"], tools_fixture["actor"], vision=vision)
+    tables = ("project_revisions", "render_plans", "production_grants", "production_jobs")
+    before = {table: count_rows(tools_fixture, table) for table in tables}
+    result = service.dispatch("quantech_analyze_visual_asset", {**ref(tools_fixture),
+                              "source_asset_id": tools_fixture["asset"].id})
+    assert result["ok"] is True
+    observation = result["result"]
+    assert observation["effect"] == "read_only"
+    assert observation["representation_2d"]["kind"] == "verified_raster_2d"
+    assert observation["source_sha256"] == tools_fixture["asset"].sha256
+    semantic = observation["semantic_vision"]
+    assert semantic["effect"] == "proposal_only"
+    assert semantic["status"] == ("observed" if detected else "unavailable")
+    assert not ({"identity", "mastery", "grade", "approved", "rendered"} & semantic.keys())
+    assert {table: count_rows(tools_fixture, table) for table in tables} == before
 
 
 def test_direct_dispatch_validates_and_stages_without_hidden_authority(tools_fixture: dict) -> None:
