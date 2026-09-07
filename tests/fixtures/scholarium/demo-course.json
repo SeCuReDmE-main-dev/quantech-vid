@@ -1,0 +1,22 @@
+{
+  "schema": "quantech.school.fixture.v1",
+  "synthetic": true,
+  "authority": "none",
+  "organizations": [{"id": "org_demo_a"}, {"id": "org_demo_b"}],
+  "teachers": [{"id": "teacher_demo_a"}, {"id": "teacher_demo_b"}],
+  "memberships": [
+    {"teacher_id": "teacher_demo_a", "organization_id": "org_demo_a", "role": "teacher", "active": true},
+    {"teacher_id": "teacher_demo_b", "organization_id": "org_demo_b", "role": "teacher", "active": true}
+  ],
+  "courses": [{"id": "course_demo_a", "organization_id": "org_demo_a", "title": "A synthetic media workshop"}],
+  "lessons": [
+    {"id": "lesson_demo_a", "course_id": "course_demo_a", "revision": 1, "title": "Explain a simple process", "content": "A source is selected, reviewed and rendered."},
+    {"id": "lesson_demo_a", "course_id": "course_demo_a", "revision": 2, "title": "Explain and inspect a simple process", "content": "A source is selected, reviewed, rendered and inspected."}
+  ],
+  "active_lesson_revisions": {"lesson_demo_a": 2},
+  "scenarios": [
+    {"name": "same organization and current revision", "teacher_id": "teacher_demo_a", "lesson_id": "lesson_demo_a", "revision": 2, "expected_policy": "eligible_for_teacher_review"},
+    {"name": "other organization", "teacher_id": "teacher_demo_b", "lesson_id": "lesson_demo_a", "revision": 2, "expected_policy": "reject_organization_mismatch"},
+    {"name": "stale lesson revision", "teacher_id": "teacher_demo_a", "lesson_id": "lesson_demo_a", "revision": 1, "expected_policy": "reject_stale_revision"}
+  ]
+}
