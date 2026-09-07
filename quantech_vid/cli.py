@@ -72,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="quantech-vid")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor")
+    sub.add_parser("pairing-code", help="Issue a one-time local studio code valid for ten minutes; never share it with agents")
     validate_parser = sub.add_parser("validate-project")
     validate_parser.add_argument("manifest", type=Path)
     capture_parser = sub.add_parser("capture-site")
@@ -105,6 +106,13 @@ def main() -> None:
     args = build_parser().parse_args()
     settings = Settings.load()
     settings.require_loopback()
+    if args.command == "pairing-code":
+        from .api import _signing_key
+        from .production_store import ProductionStore
+        store = ProductionStore(settings.data_dir / "production.sqlite3", _signing_key(settings.data_dir))
+        print("One-time local studio code (10 minutes; never commit, publish or share with an agent):")
+        print(store.issue_pairing_code())
+        return
     if args.command in {"doctor", "status"}:
         raise SystemExit(doctor(settings))
     if args.command == "validate-project":

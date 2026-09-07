@@ -1,13 +1,29 @@
 <!doctype html>
-<html lang="fr">
-<head><meta charset="utf-8"><link rel="stylesheet" href="popup.css"><title>QuaNTecH-ViD</title></head>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+  <title>QuaNTecH-ViD Companion</title>
+</head>
 <body>
-  <header><span class="mark">QV</span><div><strong>QuaNTecH-ViD</strong><small>Local production studio</small></div></header>
+  <header><span class="mark" aria-hidden="true">QV</span><div><strong>QuaNTecH-ViD</strong><small>Visible local companion</small></div></header>
   <main>
-    <p id="status">Verification du studio...</p>
-    <button id="capture" class="primary">Capturer cette page</button>
-    <button id="open">Ouvrir le studio</button>
-    <div id="result" hidden></div>
+    <p id="status">No selected text is held.</p>
+    <section id="selection" hidden aria-labelledby="selection-title">
+      <h1 id="selection-title">Explicit selected text</h1>
+      <p id="count"></p>
+      <pre id="selected-text"></pre>
+      <div class="actions">
+        <button id="save" class="primary">Save as UTF-8 .txt</button>
+        <button id="clear">Clear selected text</button>
+      </div>
+    </section>
+    <button id="open">Open local studio in a new tab</button>
+    <p class="fine">Select text on a page, then use the QuaNTecH-ViD context-menu command. The companion never scans a page or saves its URL.</p>
+    <p class="fine">After saving the text, import the file yourself through the studio file selector and complete its visible rights declaration.</p>
+    <p class="warning">Selection memory is ephemeral and can be lost whenever the extension background stops or restarts.</p>
+    <p class="fine">External engines: not connected. The eight existing tools remain in the top-level paired studio and keep their human-approval boundary.</p>
   </main>
   <script src="popup.js"></script>
 </body>

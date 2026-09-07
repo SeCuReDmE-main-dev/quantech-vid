@@ -1,8 +1,9 @@
 {
   "name": "quantech-vid-local-studio",
-  "version": "1.0.3",
-  "description": "Loopback-only capture bridge for QuaNTecH-ViD studio",
+  "version": "1.1.0",
+  "description": "Visible cross-browser companion for the local QuaNTecH-ViD studio",
   "main": "background.js",
+  "type": "module",
   "private": true,
   "packageManager": "npm@11.16.0",
   "engines": {
@@ -10,11 +11,18 @@
     "npm": "11.16.0"
   },
   "scripts": {
-    "build": "webpack --config webpack.config.js",
-    "watch": "webpack --config webpack.config.js --watch",
+    "build": "npm run build:chrome && npm run build:edge && npm run build:firefox",
+    "build:chrome": "webpack --config webpack.config.cjs --env browser=chrome",
+    "build:edge": "webpack --config webpack.config.cjs --env browser=edge",
+    "build:firefox": "webpack --config webpack.config.cjs --env browser=firefox",
+    "watch": "webpack --config webpack.config.cjs --env browser=chrome --watch",
     "test:contract": "node --test tests/*.test.mjs",
-    "package": "npm run build && web-ext build -s dist/ -a releases/",
-    "dev": "web-ext run -s dist/"
+    "package": "npm run package:chrome && npm run package:edge && npm run package:firefox",
+    "package:chrome": "npm run build:chrome && web-ext build -s dist/chrome -a releases/chrome --overwrite-dest",
+    "package:edge": "npm run build:edge && web-ext build -s dist/edge -a releases/edge --overwrite-dest",
+    "package:firefox": "npm run build:firefox && web-ext build -s dist/firefox -a releases/firefox --overwrite-dest",
+    "lint:firefox": "web-ext lint -s dist/firefox",
+    "dev": "web-ext run -s dist/firefox"
   },
   "dependencies": {},
   "overrides": {

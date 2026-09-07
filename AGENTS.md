@@ -8,7 +8,7 @@ Build QuaNTecH-ViD into a provider-neutral side-panel studio whose videos earn a
 
 The repository currently contains a tested local FastAPI/SQLite/direct-FFmpeg renderer, studio UI, project manifests, Chrome loopback capture bridge, subtitles, provenance, and QA artifacts.
 
-The full side panel, WebMCP tools, OpenAI Agents SDK orchestration, avatar workflow, Google Vids bridge, Microsoft Clipchamp handoff, and publishing adapters are planned MVP work. Preserve this distinction in code and documentation.
+The v2 studio now implements paired/scoped API/MCP tools, native WebMCP registration, immutable revisions, human-approved production, claim provenance and a shared procedural Three.js preview/render module. Native browser-agent invocation and external scoring remain unqualified. The full side panel, provider-driven production, avatar workflow and publishing adapters are still planned work. Preserve this distinction in code and documentation; consult docs/STUDIO_QA.md for bounded runtime evidence rather than treating a passing test as a completed release.
 
 ## Product invariants
 

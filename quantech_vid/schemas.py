@@ -5,6 +5,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
+from .scene3d import Visual3DConfig
+from .transcripts import TranscriptSegment
+
 
 class Profile(BaseModel):
     name: str
@@ -20,6 +23,8 @@ class Scene(BaseModel):
     body_fr: str = ""
     title_en: str
     body_en: str = ""
+    notice: str = Field(default="", max_length=500, exclude_if=lambda value: not value)
+    visual_3d: Visual3DConfig | None = Field(default=None, exclude_if=lambda value: value is None)
     asset: str
     fit: Literal["cover", "contain"] = "cover"
 
@@ -34,6 +39,9 @@ class LocaleTrack(BaseModel):
     title: str
     narration: str
     voice: str | None = None
+    segments: list[TranscriptSegment] = Field(
+        default_factory=list, max_length=128, exclude_if=lambda value: not value
+    )
 
 
 class ProjectManifest(BaseModel):
@@ -45,6 +53,8 @@ class ProjectManifest(BaseModel):
     locales: list[LocaleTrack]
     profiles: list[Profile]
     scenes: list[Scene]
+    scene3d_binding: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    scene3d_frame_byte_limit: int | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def unique_contract(self) -> "ProjectManifest":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantech-vid"
-version = "2.0.0"
+version = "2.1.0"
 description = "Local-first agentic video studio for podcast creators"
 readme = "README.md"
 license = "MIT"
@@ -19,6 +19,7 @@ dependencies = [
   "imageio-ffmpeg==0.6.0",
   "Pillow==12.3.0",
   "httpx==0.28.1",
+  "mcp==2.1.1",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,7 @@ Issues = "https://github.com/SeCuReDmE-main-dev/quantech-vid/issues"
 
 [project.scripts]
 quantech-vid = "quantech_vid.cli:main"
+quantech-vid-mcp = "quantech_vid.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["quantech_vid*"]
